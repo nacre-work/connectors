@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chownSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compileMapping, State, sweep, type Index, type Mapped } from '@nacre.work/connector-kit'
@@ -52,9 +52,9 @@ beforeAll(() => {
   commit('first')
 })
 
-function source(dir: string) {
+function source(dir: string, url = work) {
   return new GitSource({
-    url: work,
+    url,
     ref: 'main',
     dir,
     include: ['**'],
@@ -105,5 +105,34 @@ describe('the three verbs against a real repository', () => {
     expect(index.removed).toEqual(['doc-handbook/docs/handbook.md'])
     expect(index.docs.get('handbook/docs/leave.md')?.content).toContain('Twenty-eight')
     state.close()
+  })
+})
+
+/**
+ * git refuses a repository owned by another uid, and a source mounted into
+ * the container is owned by whoever mounted it. Only root can hand a fixture
+ * to another uid, so this case runs as root and is skipped elsewhere — the
+ * `live` job is the measurement on a runner, where `node` reads the runner's
+ * repository and did refuse before the config file existed.
+ */
+describe.skipIf(process.getuid?.() !== 0)('a source owned by another uid', () => {
+  it('is read through the config file git\'s child processes see', async () => {
+    const other = mkdtempSync(join(tmpdir(), 'git-other-'))
+    const bare = join(other, 'bare.git')
+    execFileSync('git', ['clone', '-q', '--bare', work, bare])
+    const chown = (p: string) => {
+      chownSync(p, 1234, 1234)
+      if (statSync(p).isDirectory()) for (const e of readdirSync(p)) chown(join(p, e))
+    }
+    chown(bare)
+    const listing = async (src: GitSource) => {
+      await src.open()
+      const ids = []
+      for await (const item of src.list()) ids.push(item.id)
+      return ids.sort()
+    }
+    const own = await listing(source(join(other, 'own.git')))
+    expect(own.length).toBeGreaterThan(0)
+    expect(await listing(source(join(other, 'mirror.git'), bare))).toEqual(own)
   })
 })

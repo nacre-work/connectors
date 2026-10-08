@@ -85,7 +85,7 @@ absent() { # title → true once no hit carries it
 }
 
 say "verb 1: add"
-LOG=$(run_once); echo "$LOG" | tail -3
+LOG=$(run_once); echo "$LOG"
 echo "$LOG" | grep -q '"added":2' || die "the first sweep did not report two documents added"
 wait_for leave.md alphaleave || die "docs/leave.md never arrived in a search by the reader"
 wait_for a.ts betacode || die "src/a.ts never arrived in a search by the reader"
@@ -95,14 +95,14 @@ search a.ts | json "d.items.find(h=>h.title==='a.ts').layer==='code' ? 'ok' : un
 say "verb 2: change"
 printf '# Leave\n\nThe word gammaleave replaced the old one.\n' > "$WORK/docs/leave.md"
 gitw commit -q -am change; gitw push -q "$BARE" main
-LOG=$(run_once); echo "$LOG" | tail -3
+LOG=$(run_once); echo "$LOG"
 echo "$LOG" | grep -q '"changed":1' || die "the second sweep did not report one document changed"
 wait_for leave.md gammaleave || die "the changed text never reached the index"
 search leave.md | json "d.items.some(h=>h.title==='leave.md' && h.text.includes('alphaleave')) ? undefined : 'gone'" >/dev/null || die "the old text is still served"
 
 say "verb 3: remove"
 gitw rm -q docs/leave.md; gitw commit -q -m remove; gitw push -q "$BARE" main
-LOG=$(run_once); echo "$LOG" | tail -3
+LOG=$(run_once); echo "$LOG"
 echo "$LOG" | grep -q '"removed":1' || die "the third sweep did not report one document removed"
 absent leave.md || die "docs/leave.md is still in the index after leaving the tree"
 wait_for a.ts betacode || die "src/a.ts went missing while only leave.md was removed"

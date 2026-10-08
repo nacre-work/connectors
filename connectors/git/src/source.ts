@@ -14,8 +14,8 @@
  * of the second is a commit hash.
  */
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { basename, dirname, extname } from 'node:path'
+import { existsSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { compile, matchesGlob, type Fields, type Item, type Source, type Template } from '@nacre.work/connector-kit'
 
@@ -82,8 +82,26 @@ export class GitSource implements Source {
     return this.#commit
   }
 
+  /**
+   * git refuses a repository owned by another uid, and a source mounted into
+   * this container is owned by whoever mounted it — the live run meets that
+   * exactly, as `node` reading the runner's bare repository. Trusting the
+   * mirror and a local source is the operator's decision, made when they
+   * mounted it; the set is those two paths and never `*`.
+   *
+   * A file rather than `-c`, and that was measured: the local transport
+   * starts `upload-pack` with a scrubbed environment, so command-line config
+   * never reaches the process that refuses. `GIT_CONFIG_GLOBAL` does.
+   */
+  get configFile(): string {
+    return join(dirname(this.o.dir), 'git.config')
+  }
+
   /** Clone the mirror if it is not there; the ref is fetched on every sweep. */
   async open(): Promise<void> {
+    const trusted = [this.o.dir]
+    if (this.o.url.startsWith('/') || this.o.url.startsWith('file://')) trusted.push(this.o.url.replace(/^file:\/\//, ''))
+    writeFileSync(this.configFile, `[safe]\n${trusted.map((d) => `\tdirectory = ${d}\n`).join('')}`)
     if (!existsSync(this.o.dir)) {
       await this.git(['clone', '--bare', '--quiet', this.o.url, this.o.dir], { withCredential: true, cwd: undefined })
     }
@@ -96,7 +114,7 @@ export class GitSource implements Source {
     const target = this.o.ref === undefined ? 'refs/remotes/origin/HEAD' : `refs/heads/${ref}`
     this.#commit = (await this.git(['rev-parse', target])).trim()
 
-    const { stdout } = await run('git', ['ls-tree', '-r', '-l', '-z', this.#commit], { cwd: this.o.dir, maxBuffer: 256 * 1024 * 1024 })
+    const { stdout } = await run('git', ['ls-tree', '-r', '-l', '-z', this.#commit], { cwd: this.o.dir, env: this.env(), maxBuffer: 256 * 1024 * 1024 })
     for (const entry of stdout.split('\0')) {
       if (entry === '') continue
       const tab = entry.indexOf('\t')
@@ -129,6 +147,7 @@ export class GitSource implements Source {
     if (size > this.o.maxBytes) return { skip: 'oversize', skip_detail: `${String(size)} bytes, GIT_MAX_BYTES is ${String(this.o.maxBytes)}` }
     const { stdout } = await run('git', ['cat-file', 'blob', String(item.fields['blob'])], {
       cwd: this.o.dir,
+      env: this.env(),
       encoding: 'buffer',
       maxBuffer: this.o.maxBytes + 1024,
     })
@@ -137,8 +156,13 @@ export class GitSource implements Source {
     return { content: bytes.toString('utf8') }
   }
 
+  /** Every git this source starts: no prompt, and the config file above. */
+  env(): NodeJS.ProcessEnv {
+    return { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_GLOBAL: this.configFile }
+  }
+
   async git(args: string[], opts: { withCredential?: boolean; cwd?: string | undefined } = {}): Promise<string> {
-    const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+    const env = this.env()
     const argv = [...args]
     if (opts.withCredential && this.o.credential !== undefined) {
       // Through a helper reading the child's own environment, so the token is
