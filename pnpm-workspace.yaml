@@ -1,0 +1,5 @@
+# One kit and one package per connector. Each connector builds into an image of
+# its own; the kit is never published — a connector carries it in its image.
+packages:
+  - "packages/*"
+  - "connectors/*"

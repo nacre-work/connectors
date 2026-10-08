@@ -1,0 +1,98 @@
+# A real Nacre for the live run, from the core's **published** images at the
+# version the kit's SDK is pinned to — `lint:images` does not hold that pair
+# yet; `scripts/ci/live.sh` reads the tag out of this file and says which core
+# it drove. Not the core's own compose file, which builds from source: a
+# connector pins a release, never a branch.
+#
+# The four images that live on Docker Hub can be pointed elsewhere, because a
+# sandbox behind Hub's anonymous pull limit answers 429 to every HEAD and the
+# run would otherwise be impossible to perform by hand. The defaults are what
+# CI runs; an override is a sandbox's business and changes what is measured
+# only in the sense that a datastore is a datastore.
+#
+# The embedder is the core's constant-vector stub. Relevance decides nothing
+# under it, which is exactly right here: what the live run asks is whether a
+# document is **in** the index, changed, or gone — and under a constant vector
+# every search returns every permitted document, so absence is provable.
+name: connectors-live
+
+x-core: &core
+  image: ghcr.io/nacre-work/nacre:0.26.7
+  environment: &env
+    NACRE_ENV: development
+    NACRE_CANONICAL_URL: http://localhost:8080
+    NACRE_PG_URL: postgres://nacre:nacre@postgres:5432/nacre
+    NACRE_QDRANT_URL: http://qdrant:6333
+    NACRE_REDIS_URL: redis://redis:6379/0
+    NACRE_PARSER_ENDPOINT: http://parser:8090
+    NACRE_JWT_SECRET: live-run-only-not-a-secret-0123456789
+    NACRE_JWT_ISSUER: http://localhost:8080
+    NACRE_JWT_AUDIENCE: nacre
+    NACRE_DEFAULT_EMBEDDING_ENDPOINT: http://stub-embedder:8000
+    NACRE_DEFAULT_EMBEDDING_MODEL: stub
+    NACRE_DEFAULT_EMBEDDING_DIM: "8"
+    NACRE_RERANKER_ENABLED: "false"
+    NACRE_MODULES: ""
+
+services:
+  migrate:
+    <<: *core
+    command: ["node", "packages/core/dist/migrate-main.js"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+  api:
+    <<: *core
+    command: ["node", "packages/api/dist/main.js"]
+    environment:
+      <<: *env
+      PORT: 8080
+    ports: ["8080:8080"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_started }
+      stub-embedder: { condition: service_healthy }
+  worker:
+    <<: *core
+    command: ["node", "packages/worker/dist/main.js"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_started }
+      parser: { condition: service_started }
+      stub-embedder: { condition: service_healthy }
+  parser:
+    image: ghcr.io/nacre-work/nacre-parser:0.26.7
+    expose: ["8090"]
+  stub-embedder:
+    image: ${LIVE_NODE_IMAGE:-node:24-alpine}
+    # An explicit entrypoint, so an image whose own entrypoint is `node` does
+    # not run `node node …`.
+    entrypoint: ["node"]
+    command: ["/opt/stub/stub-embedder.mjs"]
+    environment: { PORT: "8000", NACRE_DEFAULT_EMBEDDING_DIM: "8" }
+    volumes: ["./scripts/ci:/opt/stub:ro"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+  postgres:
+    image: ${LIVE_POSTGRES_IMAGE:-postgres:17-alpine}
+    environment: { POSTGRES_USER: nacre, POSTGRES_PASSWORD: nacre, POSTGRES_DB: nacre }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nacre -d nacre"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  qdrant:
+    image: ${LIVE_QDRANT_IMAGE:-qdrant/qdrant:v1.18.3}
+    expose: ["6333"]
+  redis:
+    image: ${LIVE_REDIS_IMAGE:-redis:7-alpine}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

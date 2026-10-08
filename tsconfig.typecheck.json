@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.base.json",
+  "comment": "Typechecks the tests too, which `tsc -b` in each package does not: a test that no longer compiles is a test that no longer runs.",
+  "compilerOptions": { "composite": false, "noEmit": true, "declaration": false, "declarationMap": false, "types": ["node"] },
+  "include": ["packages/*/src/**/*.ts", "connectors/*/src/**/*.ts"]
+}
