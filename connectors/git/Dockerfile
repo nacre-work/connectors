@@ -8,6 +8,9 @@
 ARG BASE=node:24-alpine
 FROM ${BASE} AS build
 USER root
+# pnpm asks nothing with `CI` set; without it, reshaping node_modules waits for
+# an answer nobody is there to give, which is how the first image build hung.
+ENV CI=true
 WORKDIR /app
 COPY package.json ./
 RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1]")" 
@@ -17,7 +20,10 @@ COPY connectors/git/package.json connectors/git/tsconfig.json connectors/git/
 RUN pnpm install --frozen-lockfile
 COPY packages/kit/src packages/kit/src
 COPY connectors/git/src connectors/git/src
-RUN pnpm build && pnpm install --prod --frozen-lockfile --ignore-scripts
+# `prune --prod` rather than a second install: an install leaves every dev
+# package in the virtual store, and the prune leaves the SDK — 132 entries
+# against 3, measured.
+RUN pnpm build && pnpm prune --prod
 
 FROM ${BASE}
 USER root
