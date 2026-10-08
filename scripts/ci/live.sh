@@ -58,11 +58,13 @@ say "the connector image"
 docker build -q ${LIVE_NODE_IMAGE:+--build-arg BASE="$LIVE_NODE_IMAGE"} -f "connectors/${CONNECTOR}/Dockerfile" -t "connector-${CONNECTOR}:live" . >/dev/null
 NET="connectors-live_default"
 STATE="$LIVE/state"; mkdir -p "$STATE"; chmod 777 "$STATE"
-run_once() { # prints the container's log
+run_once() { # prints the container's log, and its exit code when it is not 0 —
+  # a container that died must leave its reason on the screen, not a bare
+  # "exit 1" from the assignment that captured it
   docker run --rm --network "$NET" -v "$STATE:/state" -v "$BARE:/src/repo.git:ro" \
     -e NACRE_URL=http://api:8080 -e NACRE_TOKEN="$WRITER_KEY" -e SYNC_ONCE=true \
     -e GIT_URL=/src/repo.git -e GIT_REF=main -e 'GIT_LAYERS=docs/**=handbook;src/**=code' \
-    "connector-${CONNECTOR}:live" 2>&1
+    "connector-${CONNECTOR}:live" 2>&1 || echo "the connector exited $?"
 }
 search() { req POST /v1/search "$READER_KEY" "{\"query\":\"$1\",\"top_k\":50,\"include_content\":true}"; }
 # Under the constant-vector stub every permitted document is in every answer,

@@ -20,10 +20,10 @@ COPY connectors/git/package.json connectors/git/tsconfig.json connectors/git/
 RUN pnpm install --frozen-lockfile
 COPY packages/kit/src packages/kit/src
 COPY connectors/git/src connectors/git/src
-# `prune --prod` rather than a second install: an install leaves every dev
-# package in the virtual store, and the prune leaves the SDK — 132 entries
-# against 3, measured.
-RUN pnpm build && pnpm prune --prod
+# Both steps, in this order, and each was measured: `prune` alone removes the
+# workspace links and the image loses the kit, `install --prod` alone leaves
+# every dev package in the virtual store — 132 entries against 3.
+RUN pnpm build && pnpm install --prod --frozen-lockfile --ignore-scripts && pnpm prune --prod
 
 FROM ${BASE}
 USER root
