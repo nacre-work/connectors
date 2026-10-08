@@ -3,8 +3,8 @@
  * `lint:config` holds in both directions.
  */
 import { createRequire } from 'node:module'
-import { integer, optional, required, runConnector } from '@nacre.work/connector-kit'
-import { GitSource, parseGlobs, parseLayerRules } from './source.js'
+import { integer, optional, parseGlobs, parseLayerRules, required, runConnector } from '@nacre.work/connector-kit'
+import { GitSource } from './source.js'
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 

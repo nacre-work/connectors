@@ -176,3 +176,109 @@ describe('the three verbs', () => {
     expect([...index.docs.keys()]).toEqual(['new/a.md'])
   })
 })
+
+/** A source whose items are files: the listing carries the key and an ETag, the fetch carries bytes under a type. */
+function filesOf(items: readonly { id: string; version: string; bytes: Uint8Array; type?: string }[]): Source {
+  return {
+    async *list() {
+      for (const item of items) yield { id: item.id, version: item.version, fields: { path: item.id, dept: 'docs' } }
+    },
+    async fetch(item: Item) {
+      const found = items.find((i) => i.id === item.id)
+      if (found === undefined) return {}
+      return found.type === undefined ? { bytes: found.bytes } : { bytes: found.bytes, content_type: found.type }
+    },
+  }
+}
+
+describe('binary documents', () => {
+  const pdf = (text: string) => new TextEncoder().encode(`%PDF-1.4 ${text}`)
+
+  it('sends a file as bytes under its declared type, hashed over the bytes, and never through the content template', async () => {
+    const state = new State(join(mkdtempSync(join(tmpdir(), 'kit-')), 'state.sqlite'))
+    const index = new FakeIndex()
+    const run = (items: Parameters<typeof filesOf>[0]) => sweep({ source: filesOf(items), mapping, index, state, provenance, report: quiet })
+
+    const first = await run([{ id: 'a.pdf', version: 'etag-1', bytes: pdf('alpha'), type: 'application/pdf' }])
+    expect(first).toMatchObject({ added: 1, skipped: {} })
+    expect(index.adds[0]?.content).toBeUndefined()
+    expect(index.adds[0]?.contentType).toBe('application/pdf')
+    expect(index.adds[0]?.bytes).toEqual(pdf('alpha'))
+
+    // Same bytes under a new ETag: fetched, hashed, found unchanged.
+    const same = await run([{ id: 'a.pdf', version: 'etag-2', bytes: pdf('alpha'), type: 'application/pdf' }])
+    expect(same).toMatchObject({ added: 0, changed: 0, unchanged: 1 })
+
+    // New bytes: a change.
+    const moved = await run([{ id: 'a.pdf', version: 'etag-3', bytes: pdf('beta'), type: 'application/pdf' }])
+    expect(moved).toMatchObject({ changed: 1 })
+    expect(index.adds).toHaveLength(2)
+  })
+
+  it('refuses to guess a type, and bounds the bytes the way it bounds text', async () => {
+    const state = new State(join(mkdtempSync(join(tmpdir(), 'kit-')), 'state.sqlite'))
+    const index = new FakeIndex()
+    const skipped: [string, string][] = []
+    const report = { skipped: (reason: string, item: string) => void skipped.push([reason, item]), failed: () => undefined }
+
+    const outcome = await sweep({
+      source: filesOf([
+        { id: 'untyped.bin', version: 'v', bytes: pdf('x') },
+        { id: 'empty.pdf', version: 'v', bytes: new Uint8Array(), type: 'application/pdf' },
+        { id: 'big.pdf', version: 'v', bytes: new Uint8Array(2048), type: 'application/pdf' },
+        { id: 'fine.pdf', version: 'v', bytes: pdf('ok'), type: 'application/pdf' },
+      ]),
+      mapping,
+      index,
+      state,
+      provenance,
+      report,
+      maxBytes: 1024,
+    })
+
+    expect(outcome).toMatchObject({ added: 1, skipped: { missing_field: 1, empty: 1, oversize: 1 } })
+    expect(skipped).toEqual([
+      ['missing_field', 'untyped.bin'],
+      ['empty', 'empty.pdf'],
+      ['oversize', 'big.pdf'],
+    ])
+    expect(index.adds.map((d) => d.externalId)).toEqual(['fine.pdf'])
+  })
+})
+
+describe('remembered skips', () => {
+  it('does not fetch an item again to skip it again while its version holds, and forgets the skip once it maps', async () => {
+    const state = new State(join(mkdtempSync(join(tmpdir(), 'kit-')), 'state.sqlite'))
+    const index = new FakeIndex()
+    const fetches: string[] = []
+    const png = { id: 'logo.png', version: 'v1', bytes: new Uint8Array([0x89, 0x50]) }
+    const counting = (items: Parameters<typeof filesOf>[0]): Source => {
+      const inner = filesOf(items)
+      return { list: () => inner.list(), fetch: (item: Item) => (fetches.push(item.id), inner.fetch(item)) }
+    }
+    const skipped: string[] = []
+    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined }
+
+    // No content_type: a missing field, decided from the bytes.
+    const first = await sweep({ source: counting([png]), mapping, index, state, provenance, report })
+    expect(first.skipped).toEqual({ missing_field: 1 })
+    expect(fetches).toEqual(['logo.png'])
+
+    // Same version: counted again, fetched never.
+    const second = await sweep({ source: counting([png]), mapping, index, state, provenance, report })
+    expect(second.skipped).toEqual({ missing_field: 1 })
+    expect(fetches).toEqual(['logo.png'])
+    expect(skipped).toEqual(['missing_field:logo.png', 'missing_field:logo.png'])
+
+    // A new version is new bytes: fetched, and this time it maps.
+    const third = await sweep({ source: counting([{ ...png, version: 'v2', type: 'application/pdf' }]), mapping, index, state, provenance, report })
+    expect(third).toMatchObject({ added: 1, skipped: {} })
+    expect(fetches).toEqual(['logo.png', 'logo.png'])
+
+    // Back to bytes that do not map, under a version seen before as fine:
+    // the skip was forgotten on the add, so this is decided afresh.
+    const fourth = await sweep({ source: counting([{ ...png, version: 'v3' }]), mapping, index, state, provenance, report })
+    expect(fourth.skipped).toEqual({ missing_field: 1 })
+    expect(fetches).toHaveLength(3)
+  })
+})

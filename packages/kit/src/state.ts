@@ -45,6 +45,13 @@ export class State {
         name  TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS skips (
+        item_id        TEXT PRIMARY KEY,
+        source_version TEXT NOT NULL,
+        reason         TEXT NOT NULL,
+        detail         TEXT NOT NULL,
+        seen_sweep     INTEGER NOT NULL
+      );
     `)
   }
 
@@ -96,6 +103,40 @@ export class State {
       .prepare(`SELECT layer, external_id, document_id, content_hash, source_version FROM documents WHERE seen_sweep < ?`)
       .all(sweep) as Record<string, unknown>[]
     return rows.map(fromRow)
+  }
+
+  /**
+   * A skip the source decided from an item's bytes — binary, oversize, empty,
+   * a field the content did not carry — remembered by the item's version, so
+   * a bucket of images is not downloaded again on every sweep to be found
+   * binary again. Nothing the *index* decided is remembered here: a layer
+   * that does not exist yet may exist next sweep, and that answer must be
+   * asked again.
+   */
+  skipFor(itemId: string, version: string): { reason: string; detail: string } | undefined {
+    const r = this.#db.prepare(`SELECT reason, detail FROM skips WHERE item_id = ? AND source_version = ?`).get(itemId, version) as
+      | { reason: string; detail: string }
+      | undefined
+    return r
+  }
+
+  rememberSkip(sweep: number, itemId: string, version: string, reason: string, detail: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO skips (item_id, source_version, reason, detail, seen_sweep) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (item_id) DO UPDATE SET source_version = excluded.source_version, reason = excluded.reason,
+           detail = excluded.detail, seen_sweep = excluded.seen_sweep`,
+      )
+      .run(itemId, version, reason, detail, sweep)
+  }
+
+  forgetSkip(itemId: string): void {
+    this.#db.prepare(`DELETE FROM skips WHERE item_id = ?`).run(itemId)
+  }
+
+  /** After a complete sweep: a remembered skip the listing no longer carries is an item that is gone. */
+  pruneSkips(sweep: number): void {
+    this.#db.prepare(`DELETE FROM skips WHERE seen_sweep < ?`).run(sweep)
   }
 
   count(): number {

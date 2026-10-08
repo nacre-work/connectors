@@ -17,7 +17,7 @@
 name: connectors-live
 
 x-core: &core
-  image: ghcr.io/nacre-work/nacre:0.26.7
+  image: ghcr.io/nacre-work/nacre:0.27.0
   environment: &env
     NACRE_ENV: development
     NACRE_CANONICAL_URL: http://localhost:8080
@@ -33,6 +33,16 @@ x-core: &core
     NACRE_DEFAULT_EMBEDDING_DIM: "8"
     NACRE_RERANKER_ENABLED: "false"
     NACRE_MODULES: ""
+    # Object storage, so a binary document has somewhere to live: the s3
+    # connector sends a Word document through, and the index refuses every
+    # binary upload on a deployment without a bucket. The same MinIO holds the
+    # connector's *source* bucket under a different name.
+    NACRE_S3_ENDPOINT: http://minio:9000
+    NACRE_S3_BUCKET: nacre
+    NACRE_S3_REGION: us-east-1
+    NACRE_S3_ACCESS_KEY: live
+    NACRE_S3_SECRET_KEY: live-run-only-not-a-secret
+    NACRE_S3_FORCE_PATH_STYLE: "true"
 
 services:
   migrate:
@@ -53,6 +63,7 @@ services:
       redis: { condition: service_healthy }
       qdrant: { condition: service_started }
       stub-embedder: { condition: service_healthy }
+      minio: { condition: service_started }
   worker:
     <<: *core
     command: ["node", "packages/worker/dist/main.js"]
@@ -63,7 +74,7 @@ services:
       parser: { condition: service_started }
       stub-embedder: { condition: service_healthy }
   parser:
-    image: ghcr.io/nacre-work/nacre-parser:0.26.7
+    image: ghcr.io/nacre-work/nacre-parser:0.27.0
     expose: ["8090"]
   stub-embedder:
     image: ${LIVE_NODE_IMAGE:-node:24-alpine}
@@ -78,6 +89,12 @@ services:
       interval: 3s
       timeout: 2s
       retries: 10
+  minio:
+    # Chainguard's build, as the core's own CI: `minio/minio` left Docker Hub.
+    image: ${LIVE_MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment: { MINIO_ROOT_USER: live, MINIO_ROOT_PASSWORD: live-run-only-not-a-secret }
+    ports: ["9000:9000"]
   postgres:
     image: ${LIVE_POSTGRES_IMAGE:-postgres:17-alpine}
     environment: { POSTGRES_USER: nacre, POSTGRES_PASSWORD: nacre, POSTGRES_DB: nacre }

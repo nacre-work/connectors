@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [git]
+        connector: [git, s3]
     steps:
       - uses: actions/checkout@v4
         with:

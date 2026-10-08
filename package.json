@@ -8,8 +8,9 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "lint": "eslint . && pnpm lint:config && pnpm lint:images && pnpm lint:workflows",
+    "lint": "eslint . && pnpm lint:config && pnpm lint:formats && pnpm lint:images && pnpm lint:workflows",
     "lint:config": "node scripts/check-config.mjs",
+    "lint:formats": "node scripts/check-formats.mjs",
     "lint:images": "node scripts/check-images.mjs",
     "lint:workflows": "node scripts/check-workflows.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json",

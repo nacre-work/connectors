@@ -77,9 +77,39 @@ engine, SQLite state through `node:sqlite` (built into Node, no dependency),
 the mapping language, environment reading that refuses rather than defaults,
 the SDK behind a four-method `Index` port, and the status book. A connector is
 a `Source` — `list()` and `fetch()` — plus a mapping and a README. The one
-dependency anywhere is `@nacre.work/sdk`: a connector on the SDK holds no
-second answer about what the API is, which is the public stand's rule about
-`purge` applied here.
+dependency on the Nacre side is `@nacre.work/sdk`: a connector on the SDK holds
+no second answer about what the API is, which is the public stand's rule about
+`purge` applied here. A source's own client is the source's business — the s3
+connector carries `@aws-sdk/client-s3`, because a hand-signed SigV4 would have
+to grow the credential chain the SDK already has (an instance role, IRSA, SSO),
+and a connector that could only take a static key pair is one that is run with
+a static key pair.
+
+**A file goes up as a file.** Since core 0.27.0 the index reads Word,
+PowerPoint, Excel, OpenDocument, EPUB and RTF beside PDF, and the part must
+declare the type — the index refuses to sniff. So a `Mapped` carries either
+`content` or `bytes` with a `contentType`, and `packages/kit/src/formats.ts`
+is the table that decides the declaration from what a connector knows: a key's
+extension, or the type the store reports, canonicalised (`text/rtf` is sent as
+`application/rtf`, the row the index stores). It is a copy of the core's
+`packages/core/formats.ts`, row for row, and a copy is only safe while
+something compares the copies: `lint:formats` fetches the core's file at the
+version the kit's SDK resolves to and holds every row, both directions. A row
+the index would refuse is a document rejected on every sweep; a row the table
+lacks is a file skipped as binary that the index would have read.
+
+**A skip the bytes decided is remembered by version.** An object the connector
+refused — not UTF-8, over the size cap — would otherwise be downloaded and
+refused again on every sweep, since a skip writes no document row for the
+cheap path to compare against. `State.skips` holds the item, the version and
+the reason; an unchanged version is skipped without a fetch, and a changed one
+is fetched again. A refusal the *index* made is deliberately not remembered: it
+may have been the index's state rather than the document's, and nothing here
+should decide that a document is permanently unwanted.
+
+`paths.ts` is the kit's because the second connector needed it: a path rule per
+layer and the path's fields (`dir`, `ext`, `top`, `name`) were git's, and s3
+keys are paths.
 
 An item's **version** is the cheap path: where a source offers one — a blob
 hash, an ETag — and the state remembers it, the fetch and the hash are skipped.
@@ -105,6 +135,18 @@ this script edits between runs. It watches a search: the document arrives, its
 text changes, it is gone. Under the constant-vector stub embedder every
 permitted document is in every answer, which is what makes *absence* provable.
 A connector whose three verbs have not been watched arrive is not written.
+
+That script is one shared half and a section per connector — the source, the
+run, and the two edits — so every connector is asked the verbs the same way,
+and a connector in a workflow matrix without a section is refused by name. The
+s3 section runs the stack with object storage and sends a Word document
+through: the bytes go up as a file, the core extracts the text, and the phrase
+comes back out of a search, which is the case the suite's in-memory bucket
+cannot ask. `LIVE_FROM_DIST=1` runs the built `dist` on the host instead of
+the image, for a sandbox whose Docker daemon cannot reach a registry through
+its own TLS proxy; the summary line says which it ran, because a run that
+measured the source is not a run that measured the artifact, and CI never
+sets it.
 
 ## Checks
 

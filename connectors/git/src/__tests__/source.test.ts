@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compileMapping, State, sweep, type Index, type Mapped } from '@nacre.work/connector-kit'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { GitSource, parseLayerRules, pathFields } from '../source.js'
+import { parseLayerRules, pathFields } from '@nacre.work/connector-kit'
+import { GitSource } from '../source.js'
 
 /**
  * A real repository, driven through real git: the listing and the blob reads

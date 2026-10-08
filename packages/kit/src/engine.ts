@@ -30,7 +30,14 @@ export interface Item {
 export interface Source {
   /** A complete listing. Ending normally is what licenses removal; throwing does not. */
   list(): AsyncIterable<Item>
-  /** The expensive part — fields the listing did not carry, the content among them. */
+  /**
+   * The expensive part — fields the listing did not carry, the content among
+   * them. Three field names are the engine's rather than the mapping's:
+   * `skip` (a `SkipReason`, with `skip_detail`) counts the item instead of
+   * mapping it; and `bytes` (a `Uint8Array`) with `content_type` carries a
+   * binary document — a PDF, an office file — which goes to the index as a
+   * file under that type instead of through the `content` template.
+   */
   fetch(item: Item): Promise<Fields>
 }
 
@@ -40,7 +47,11 @@ export interface Mapped {
   readonly layer: string
   readonly externalId: string
   readonly title: string | undefined
-  readonly content: string
+  /** The document as text; absent for a binary document, which carries `bytes` instead. */
+  readonly content: string | undefined
+  /** A binary document: the bytes and the type the index is told, never sniffed. */
+  readonly bytes?: Uint8Array
+  readonly contentType?: string
   readonly metadata: Readonly<Record<string, MetadataValue>>
 }
 
@@ -171,30 +182,52 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
         continue
       }
 
+      // A skip the source decided last time, from these same bytes: a
+      // bucket of images is not downloaded on every sweep to be found binary
+      // on every sweep. Only what the bytes decided — the index's refusals
+      // are asked again, because a missing layer may exist next sweep.
+      const known = item.version === undefined ? undefined : state.skipFor(item.id, item.version)
+      if (known !== undefined) {
+        state.rememberSkip(id, item.id, item.version as string, known.reason, known.detail)
+        skip(known.reason as SkipReason, item.id, known.detail)
+        continue
+      }
+      // Decided by the bytes, so remembered by the version where there is one.
+      const skipByBytes = (reason: SkipReason, detail: string): void => {
+        if (item.version !== undefined) state.rememberSkip(id, item.id, item.version, reason, detail)
+        skip(reason, item.id, detail)
+      }
+
       let mapped: Mapped
       try {
         const fetched = await source.fetch(item)
         const fields = { ...item.fields, ...fetched }
         if (typeof fields['skip'] === 'string') {
-          skip(fields['skip'] as SkipReason, item.id, String(fields['skip_detail'] ?? ''))
+          skipByBytes(fields['skip'] as SkipReason, String(fields['skip_detail'] ?? ''))
           continue
         }
         mapped = render(mapping, fields, options.provenance)
       } catch (e) {
         if (e instanceof MissingField) {
-          skip('missing_field', item.id, e.field)
+          skipByBytes('missing_field', e.field)
           continue
         }
         throw e
       }
-      if (mapped.content.trim() === '') {
-        skip('empty', item.id, 'the mapped content is empty')
+      // What the index is sent is either text or bytes, and the bounds are
+      // asked of whichever it is: an empty file is as much nothing as an
+      // empty string, and a size cap on the text alone would let a binary
+      // document of any size through.
+      const size = mapped.bytes !== undefined ? mapped.bytes.byteLength : Buffer.byteLength(mapped.content ?? '')
+      if (mapped.bytes === undefined ? (mapped.content ?? '').trim() === '' : mapped.bytes.byteLength === 0) {
+        skipByBytes('empty', mapped.bytes === undefined ? 'the mapped content is empty' : 'the file is empty')
         continue
       }
-      if (options.maxBytes !== undefined && Buffer.byteLength(mapped.content) > options.maxBytes) {
-        skip('oversize', item.id, `${String(Buffer.byteLength(mapped.content))} bytes`)
+      if (options.maxBytes !== undefined && size > options.maxBytes) {
+        skipByBytes('oversize', `${String(size)} bytes`)
         continue
       }
+      state.forgetSkip(item.id)
 
       const hash = contentHash(mapped)
       const row = state.get(mapped.layer, mapped.externalId)
@@ -233,6 +266,7 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
 
   if (complete) {
     state.finishSweep(id, now())
+    state.pruneSkips(id)
     for (const row of state.unseen(id)) {
       try {
         await index.remove(row.documentId)
@@ -282,18 +316,36 @@ function rememberedByVersion(state: State, mapping: Mapping, item: Item) {
 function render(mapping: Mapping, fields: Fields, provenance: Provenance): Mapped {
   const metadata: Record<string, MetadataValue> = { connector: provenance.connector, source: provenance.source }
   for (const [key, template] of Object.entries(mapping.metadata)) metadata[key] = template.render(fields)
-  return {
+  const head = {
     layer: mapping.layer.render(fields),
     externalId: mapping.externalId.render(fields),
     title: mapping.title?.render(fields),
-    content: mapping.content.render(fields),
     metadata,
   }
+  // A binary document bypasses the content template: the bytes are the
+  // document and the type is what the index is told. The type is required
+  // rather than guessed, because the index refuses to sniff and so does this.
+  const bytes = fields['bytes']
+  if (bytes instanceof Uint8Array) {
+    const contentType = fields['content_type']
+    if (typeof contentType !== 'string' || contentType === '') throw new MissingField('content_type')
+    return { ...head, content: undefined, bytes, contentType }
+  }
+  return { ...head, content: mapping.content.render(fields) }
 }
 
-/** Over everything the index is sent, so a title or a tag changing re-sends. */
+/**
+ * Over everything the index is sent, so a title or a tag changing re-sends.
+ * A binary document hashes its bytes and its type in place of the text; the
+ * two cannot collide, because the shape of the list differs.
+ */
 export function contentHash(doc: Mapped): string {
   const h = createHash('sha256')
-  h.update(JSON.stringify([doc.layer, doc.externalId, doc.title ?? null, doc.content, doc.metadata]))
+  if (doc.bytes !== undefined) {
+    const body = createHash('sha256').update(doc.bytes).digest('hex')
+    h.update(JSON.stringify([doc.layer, doc.externalId, doc.title ?? null, { bytes: body, contentType: doc.contentType }, doc.metadata]))
+  } else {
+    h.update(JSON.stringify([doc.layer, doc.externalId, doc.title ?? null, doc.content, doc.metadata]))
+  }
   return h.digest('hex')
 }
