@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm lint:config
+      - run: pnpm lint:images
+      - run: pnpm lint:workflows
+      - run: pnpm test
+
+  # Each connector's image builds, on every pull request and not only at
+  # release — a Dockerfile that only ever runs on the tag fails on the commit
+  # that is already the release.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        connector: [git]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build ${{ matrix.connector }}
+        run: docker build -f connectors/${{ matrix.connector }}/Dockerfile -t connector-${{ matrix.connector }}:ci .
+      - name: it refuses to start with nothing configured, by name
+        run: |
+          set -eu
+          out=$(docker run --rm connector-${{ matrix.connector }}:ci 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q 'NACRE_URL is not set' || { echo '::error::the container started, or refused without naming the variable'; exit 1; }
+
+  # The three verbs against a real Nacre — the core's published images at the
+  # version the kit's SDK is pinned to — with the connector's own image. The
+  # unit suite proves the engine's arithmetic against a fake; this proves what
+  # the index does with it, by searching.
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        connector: [git]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/ci/live.sh ${{ matrix.connector }}
+      - name: logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.live.yml logs --no-color --tail 60 api worker
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.live.yml down -v

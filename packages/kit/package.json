@@ -1,0 +1,15 @@
+{
+  "name": "@nacre.work/connector-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "What every connector shares: the sync engine that adds, changes and removes, its SQLite state, the declarative mapping, and the status contract a dashboard would read",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": { "build": "tsc -b" },
+  "dependencies": { "@nacre.work/sdk": "^0.26.7" },
+  "devDependencies": { "@types/node": "^24.0.0" },
+  "engines": { "node": ">=24" }
+}
