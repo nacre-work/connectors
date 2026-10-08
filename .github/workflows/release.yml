@@ -1,43 +1,81 @@
 name: release
 
-# A tag `v{version}` releases every connector at that version, as
-# `ghcr.io/nacre-work/connectors/{name}:{version}` for amd64 and arm64. The
-# version is read from the manifests and must equal the tag; `lint:images`
-# already holds the manifests to one another.
+# No tag trigger, and no step that waits for a person.
+#
+# This fired on `v*`, and the first release never happened: the tag has to be
+# pushed by somebody holding a credential that may push one, and the session
+# that finished the connector was not. A release blocked on a human doing the
+# right git incantation at the right commit is the state the core replaced
+# in its own release workflow, for the same reason, and this is that rule
+# brought here: shipping is a consequence of what is on main, so main is what
+# decides.
+#
+# The version in `connectors/*` — one across all of them, `lint:images` holds
+# that — names a tag the repository has, or it does not. When it does not,
+# this builds every connector's image for both architectures, pushes them,
+# and only then writes the tag and the GitHub release. In that order, because
+# a tag written first is a tag that outlives a failed build, which is exactly
+# the state this replaced.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  # Not the normal path — a merge to main is. For a registry blip that wants a
+  # retry without an empty commit; it runs the same decision over main.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'The tag to release, e.g. v0.1.0 (must exist)'
-        required: true
 
 permissions:
   contents: read
-  packages: write
+
+# Never two releases at once, and never cancel one in flight: a push of two
+# images cannot be interrupted and retried from the top without leaving one
+# connector at the new version and one not.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  # Cheap, on every push to main: reads the manifests and asks the
+  # repository's tags, so the expensive jobs below start only when there is
+  # something to ship.
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          set -euo pipefail
+          # Every connector's manifest, and they must agree — the same rule
+          # `lint:images` holds on a pull request, asked again at the moment
+          # it decides a release.
+          versions=$(for m in connectors/*/package.json; do node -p "require('./$m').version"; done | sort -u)
+          [ "$(printf '%s\n' "$versions" | wc -l)" = 1 ] || { echo "::error::connectors/* disagree on a version: $(echo $versions)"; exit 1; }
+          version="$versions"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "v$version" >/dev/null 2>&1; then
+            echo "v$version is already tagged; nothing to release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version is not tagged yet: this push releases it"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   images:
+    needs: decide
+    if: needs.decide.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         connector: [git, s3]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-      - name: the tag names the manifests' version
-        id: version
-        run: |
-          set -eu
-          tag="${{ inputs.tag || github.ref_name }}"
-          version="${tag#v}"
-          manifest=$(node -p "require('./connectors/${{ matrix.connector }}/package.json').version")
-          [ "$version" = "$manifest" ] || { echo "::error::tag $tag but connectors/${{ matrix.connector }} is at $manifest"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -51,10 +89,44 @@ jobs:
           file: connectors/${{ matrix.connector }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ steps.version.outputs.version }}
+          tags: ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }}
       - name: the pushed manifest carries both architectures
         run: |
           set -eu
-          archs=$(docker buildx imagetools inspect ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ steps.version.outputs.version }} | grep -oE 'linux/(amd64|arm64)' | sort -u | tr '\n' ' ')
+          archs=$(docker buildx imagetools inspect ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }} | grep -oE 'linux/(amd64|arm64)' | sort -u | tr '\n' ' ')
           echo "$archs"
           case "$archs" in *amd64*arm64*) ;; *) echo '::error::not both architectures'; exit 1;; esac
+
+  # After every image is pushed, never before, and idempotent on each half so
+  # a re-run over a release that half succeeded finishes it rather than
+  # failing on what is already there.
+  tag:
+    name: tag v${{ needs.decide.outputs.version }}
+    needs: [decide, images]
+    if: needs.decide.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the tag and the release
+    steps:
+      - uses: actions/checkout@v4
+      - name: tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION is already tagged"
+          else
+            git tag -a "v$VERSION" -m "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already has a release"
+          else
+            images=$(for d in connectors/*/; do n=$(basename "$d"); echo "- \`ghcr.io/nacre-work/connectors/$n:$VERSION\`"; done)
+            gh release create "v$VERSION" --title "v$VERSION" --generate-notes \
+              --notes "$(printf '### Images\n\n%s\n' "$images")"
+          fi
