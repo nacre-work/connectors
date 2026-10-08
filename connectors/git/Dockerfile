@@ -24,7 +24,10 @@ USER root
 RUN apk add --no-cache git
 WORKDIR /app
 COPY --from=build /app /app
-ENV CONNECTOR_STATE=/state/connector.sqlite PORT=9400 NODE_ENV=production
+# `node:sqlite` still announces itself as experimental on Node 24, and the log
+# is JSON lines — one prose line per start is a line every reader has to skip.
+ENV CONNECTOR_STATE=/state/connector.sqlite PORT=9400 NODE_ENV=production \
+    NODE_OPTIONS=--disable-warning=ExperimentalWarning
 RUN mkdir -p /state && chown node:node /state
 VOLUME ["/state"]
 USER node
