@@ -47,7 +47,9 @@ jobs:
           set -eu
           out=$(docker run --rm connector-${{ matrix.connector }}:ci 2>&1 || true)
           echo "$out"
-          echo "$out" | grep -q 'NACRE_URL is not set' || { echo '::error::the container started, or refused without naming the variable'; exit 1; }
+          # Which variable is named first is the connector's business; that one
+          # is named at all is every connector's.
+          echo "$out" | grep -Eq '[A-Z][A-Z0-9_]+ is not set' || { echo '::error::the container started, or refused without naming the variable'; exit 1; }
 
   # The three verbs against a real Nacre — the core's published images at the
   # version the kit's SDK is pinned to — with the connector's own image. The
