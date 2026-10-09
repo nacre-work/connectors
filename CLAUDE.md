@@ -34,8 +34,8 @@ Per source, the signal is different and the engine does not care:
 | git | the blob hash moved | the path left the tree — definitive, which is why this *may* delete where the core's `nacre ingest --watch` must not: a commit has no editor-save race |
 | s3 | ETag | the key is gone |
 | sql | a watermark column, or the row hash | the row is not in the query's result |
-| drive | `changes.list` | removed or trashed |
-| mongo | a change stream or a date field | the document is gone |
+| drive | `md5Checksum`; for a Google document, which has no bytes to checksum, `modifiedTime` with `version` | absent from a complete walk of the folder — trashed or deleted; the trash is still there to take it back |
+| mongo | a version field the deployment names, or the document's hash | the document is not in the filter's result |
 | imap | UIDVALIDITY + UID | the message left the folder |
 
 ## Decisions, and whose they were
@@ -77,9 +77,87 @@ engine, SQLite state through `node:sqlite` (built into Node, no dependency),
 the mapping language, environment reading that refuses rather than defaults,
 the SDK behind a four-method `Index` port, and the status book. A connector is
 a `Source` — `list()` and `fetch()` — plus a mapping and a README. The one
-dependency anywhere is `@nacre.work/sdk`: a connector on the SDK holds no
-second answer about what the API is, which is the public stand's rule about
-`purge` applied here.
+dependency on the Nacre side is `@nacre.work/sdk`: a connector on the SDK holds
+no second answer about what the API is, which is the public stand's rule about
+`purge` applied here. A source's own client is the source's business — the s3
+connector carries `@aws-sdk/client-s3`, because a hand-signed SigV4 would have
+to grow the credential chain the SDK already has (an instance role, IRSA, SSO),
+and a connector that could only take a static key pair is one that is run with
+a static key pair.
+
+**A file goes up as a file.** Since core 0.27.0 the index reads Word,
+PowerPoint, Excel, OpenDocument, EPUB and RTF beside PDF, and the part must
+declare the type — the index refuses to sniff. So a `Mapped` carries either
+`content` or `bytes` with a `contentType`, and `packages/kit/src/formats.ts`
+is the table that decides the declaration from what a connector knows: a key's
+extension, or the type the store reports, canonicalised (`text/rtf` is sent as
+`application/rtf`, the row the index stores). It is a copy of the core's
+`packages/core/formats.ts`, row for row, and a copy is only safe while
+something compares the copies: `lint:formats` fetches the core's file at the
+version the kit's SDK resolves to and holds every row, both directions. A row
+the index would refuse is a document rejected on every sweep; a row the table
+lacks is a file skipped as binary that the index would have read.
+
+**A skip the bytes decided is remembered by version.** An object the connector
+refused — not UTF-8, over the size cap — would otherwise be downloaded and
+refused again on every sweep, since a skip writes no document row for the
+cheap path to compare against. `State.skips` holds the item, the version and
+the reason; an unchanged version is skipped without a fetch, and a changed one
+is fetched again. A refusal the *index* made is deliberately not remembered: it
+may have been the index's state rather than the document's, and nothing here
+should decide that a document is permanently unwanted.
+
+**The sql connector is two drivers behind one port, and a row is its own
+version.** A query offers no ETag — neither family of database carries a cheap
+version by itself — so the connector offers two and the operator picks. A
+watermark column is the cheap path the engine was built for, and its cost is
+the contract such a column already makes with everything that reads it: a row
+edited without `updated_at` moving is not re-sent, which is what the suite
+asserts as the proof that the hash was skipped. Without one, the version is a
+sha256 over the whole row in canonical key order, computed in the listing
+because the row is already in memory — the statement returned it — so a
+changed cell anywhere is a changed version and `fetch` returns nothing: the
+one source here whose expensive half is empty. Postgres and MySQL answer the
+port's one question, every row streamed, through `pg-cursor` and the driver's
+own row stream, and `source.ts` imports neither; the URL's scheme chooses, and
+an unknown one is refused at startup by name. Rows are text only: a `bytea`
+makes a row a `binary` skip naming the column, because a file in a row has no
+name and no type the index could be told, and files live in object stores.
+The first version of the watermark case failed on its own fixture — the test
+mapping rendered the watermark into the metadata, so moving it was a change
+the hash was right to see — and the case renders it no longer, which is the
+property stated rather than the test bent to pass. The live section drives a
+second Postgres beside the index's own, because a connector pointed at the
+database behind the index reads what it writes.
+**A message's identity is its `Message-ID` and its version is
+`uidvalidity:uid`, and the imap connector is built on those being two
+different things.** A message never changes in place, so a UID looks like an
+identity — and it is the wrong one: mail clients re-append a corrected copy
+under the same `Message-ID` (a draft saved again, a note an app keeps as
+mail), which under UID identity is a removal and an add of two documents and
+under `Message-ID` identity is a change to one. A message with no `Message-ID`
+falls back to `uidvalidity:uid`; a folder the server rebuilt re-versions every
+message, and that is correct and cheap, because the hash still decides whether
+the index is touched. The listing reads the **body structure** beside the
+envelope and the headers, so an attachment's name and declared type are known
+without a byte of body downloaded, and an attachment the format table admits
+is a document of its own (`<message id>/<filename>`) in the message's layer —
+files go up as files here too, which is why imap came after the core release
+that reads them. The source is downloaded once per sweep however many
+attachments a message carries, and the IMAP client is paged `SEARCH` and
+`FETCH` rather than `imapflow`'s generator, because that generator holds the
+line with backpressure until every row is consumed and the engine downloads
+between two rows. `IMAP_SINCE` bounds the listing by the server's own date,
+and an older message is treated as gone — moving the date is a removal,
+which the README says in those words. The live source is a GreenMail with
+authentication off, and the one thing worth knowing about it is that a
+delivery creates the account with its **address as its login**, so the
+connector signs in as `live%40example.com` and not as `live`, which would be a
+second, empty account minted by the sign-in itself.
+
+`paths.ts` is the kit's because the second connector needed it: a path rule per
+layer and the path's fields (`dir`, `ext`, `top`, `name`) were git's, and s3
+keys are paths.
 
 An item's **version** is the cheap path: where a source offers one — a blob
 hash, an ETag — and the state remembers it, the fetch and the hash are skipped.
@@ -87,6 +165,46 @@ A git tree lists ten thousand blobs and reads the ones that moved. The engine
 decides a document's layer from the listing's fields for that reason, so a
 mapping that needs the fetched content to name a layer disables the cheap path
 rather than breaking it.
+
+**The mongo connector has nothing to fetch, and the version is what keeps that
+cheap.** A cursor hands over the whole document, so the listing holds every
+field and `fetch` returns nothing; what a sweep costs is decided by
+`Item.version`. A field the deployment names (`MONGO_VERSION`) is it, and
+without one the version is SHA-256 over the document's canonical JSON — every
+value as a template sees it, keys sorted at every depth — computed in the
+listing over bytes already delivered, so a document that did not move is
+neither mapped nor hashed by the engine. The official driver sits behind a
+`Collection` port in `driver.ts`, the s3 connector's `aws.ts` arrangement, and
+`source.ts` tells BSON values apart by `_bsontype` rather than importing one:
+an `ObjectId` is hex, a `Date` is ISO, an array of scalars is joined, and an
+embedded document is reached by a dotted path — the kit's language reads
+`${author.name}` already, so nothing is flattened. **Text only.** A `Binary`
+field is absent to a template and a mapping that names one skips the document
+by that name; files live in object stores and the s3 connector reads them.
+Writing it found that the kit's `redactUrl` hands a replica set's connection
+string — `mongodb://a:27017,b:27017/db` — back **unchanged**, because WHATWG
+`URL` refuses the host list, so a credential in one would have reached
+`/status` whole; the connector reads the string by its own grammar and builds
+what `/status` shows from the parts. The kit is repaired too rather than only
+routed around: a connector that forgets to is the next instance, so
+`redactUrl` cuts the userinfo before the `@` of anything shaped
+`scheme://…@…` whether or not the standard parser reads it, and
+`log.test.ts` pins the replica-set spelling, a Postgres failover list and a
+password carrying an `@` of its own.
+
+**And it never exited, which the unit suite could not see and CI measured at
+thirty minutes.** A one-shot run sets `process.exitCode` and lets the loop
+drain; the mongo driver's pool and its monitors are live handles, and the
+connector never closed its `MongoClient`, so the first live `add` sat with the
+sweep long done until the job's own timeout cancelled it — three runs, each
+read as mongosh hanging on stdin, which was a real defect beside this one and
+not this one. The driver closes the client after every listing now, the sql
+and imap connectors' connection-per-sweep rule, and the kit no longer trusts
+the next connector to remember: a one-shot run that is still alive five
+seconds after its verdict logs what it is waiting on and exits with the
+verdict it already reached. `once-exit.test.ts` runs a leaky source in a
+child process and asks for the exit; with the guard removed it times out,
+which is the CI job's shape at test length.
 
 ## What a connector is not written until
 
@@ -105,6 +223,47 @@ this script edits between runs. It watches a search: the document arrives, its
 text changes, it is gone. Under the constant-vector stub embedder every
 permitted document is in every answer, which is what makes *absence* provable.
 A connector whose three verbs have not been watched arrive is not written.
+
+That script is one shared half and a section per connector — the source, the
+run, and the two edits — so every connector is asked the verbs the same way,
+and a connector in a workflow matrix without a section is refused by name. The
+s3 section runs the stack with object storage and sends a Word document
+through: the bytes go up as a file, the core extracts the text, and the phrase
+comes back out of a search, which is the case the suite's in-memory bucket
+cannot ask. The imap section's change is what a mail client does to a draft —
+the message deleted and a corrected copy appended under the same
+`Message-ID` — so what it watches is that the connector reports a change and
+not a removal. `LIVE_FROM_DIST=1` runs the built `dist` on the host instead of
+the image, for a sandbox whose Docker daemon cannot reach a registry through
+its own TLS proxy; the summary line says which it ran, because a run that
+measured the source is not a run that measured the artifact, and CI never
+sets it.
+
+**The drive connector walks a folder and carries no client library, and the
+run that proves it has no Google behind it.** `googleapis` would bring four
+hundred packages into an image whose job is reading other people's documents
+to make three calls — list a folder, download a file, export a document — on
+a credential that is a JSON file holding an RSA key; `node:crypto` signs the
+assertion and `fetch` exchanges it, in `google.ts`, behind a `Drive` port the
+suite fakes. That is not the s3 decision reversed: the AWS SDK is carried for
+a credential *chain*, and a service account key is not a chain. The table
+above said `changes.list` for this connector before it was written, and a
+full walk is what was built — a complete listing is what licenses removal
+everywhere else here, and a change feed that drops a page would call nothing
+gone while believing itself complete. A Google Doc has no bytes, so it goes up
+as the Word file Drive exports it to, a Sheet as Excel, a Slides deck as
+PowerPoint — three rows of the kit's table — with the extension put on its
+name so the rules, the `external_id` and the index agree on it; a form or a
+drawing exports to nothing the index reads and is skipped as `unmapped`. And
+there is no Google in CI and no credential anywhere, so the live section
+drives the connector's image against `scripts/ci/drive-stub.mjs`, a
+standard-library server in the stack that serves a directory as a Drive
+through the connector's four routes, paging at one so paging is exercised.
+That proves the connector against the API's *shape* and the three verbs
+against the index; it proves nothing about Google — a field spelled the way
+the documentation says and not the way Google answers, a quota, a shared
+drive's corpora — which is the honest limit of a run with no account, and the
+README claims nothing past it.
 
 ## Checks
 

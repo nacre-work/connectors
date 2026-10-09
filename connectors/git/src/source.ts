@@ -15,16 +15,11 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
-import { basename, dirname, extname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { compile, matchesGlob, type Fields, type Item, type Source, type Template } from '@nacre.work/connector-kit'
+import { matchesGlob, pathFields, type Fields, type Item, type LayerRule, type Source } from '@nacre.work/connector-kit'
 
 const run = promisify(execFile)
-
-export interface LayerRule {
-  readonly glob: string
-  readonly layer: Template
-}
 
 export interface GitSourceOptions {
   readonly url: string
@@ -36,40 +31,6 @@ export interface GitSourceOptions {
   readonly rules: readonly LayerRule[]
   readonly maxBytes: number
   readonly credential: { readonly username: string; readonly token: string } | undefined
-}
-
-/** `glob=layer;glob=layer`, first match wins. The right side is a template over the path fields. */
-export function parseLayerRules(spec: string, name: string): LayerRule[] {
-  const rules: LayerRule[] = []
-  for (const part of spec.split(';')) {
-    const rule = part.trim()
-    if (rule === '') continue
-    const eq = rule.indexOf('=')
-    if (eq <= 0) throw new Error(`${name}: ${JSON.stringify(rule)} is not glob=layer`)
-    rules.push({ glob: rule.slice(0, eq).trim(), layer: compile(rule.slice(eq + 1).trim(), `${name} (${rule.slice(0, eq).trim()})`) })
-  }
-  if (rules.length === 0) throw new Error(`${name} names no rule; every file needs a layer, written as glob=layer`)
-  return rules
-}
-
-export function parseGlobs(spec: string): string[] {
-  return spec
-    .split(',')
-    .map((g) => g.trim())
-    .filter((g) => g !== '')
-}
-
-/** The fields a path offers to every template. */
-export function pathFields(path: string): Fields {
-  const ext = extname(path)
-  const dir = dirname(path)
-  return {
-    path,
-    name: basename(path),
-    dir: dir === '.' ? '' : dir,
-    ext: ext.startsWith('.') ? ext.slice(1) : ext,
-    top: path.includes('/') ? (path.split('/')[0] as string) : '',
-  }
 }
 
 export class GitSource implements Source {

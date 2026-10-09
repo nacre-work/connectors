@@ -1,0 +1,21 @@
+{
+  "name": "@nacre.work/connector-sql",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Syncs the rows a SQL query returns — Postgres, MySQL or MariaDB — into Nacre layers: a row is a document, a template over its columns picks the layer, a row the query stopped returning is a removed document",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@nacre.work/connector-kit": "workspace:*",
+    "mysql2": "^3.24.5",
+    "pg": "^8.23.1",
+    "pg-cursor": "^2.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/pg-cursor": "^2.7.2"
+  },
+  "engines": { "node": ">=24" }
+}

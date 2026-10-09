@@ -1,6 +1,7 @@
 export { ConfigError, boolean, integer, kitConfig, optional, required, type KitConfig } from './config.js'
 export { compile, MissingField, TemplateError, type Fields, type Template } from './expression.js'
 export { globToRegExp, matchesGlob } from './glob.js'
+export { parseGlobs, parseLayerRules, pathFields, type LayerRule } from './paths.js'
 export { log, redactUrl } from './log.js'
 export { State, type DocumentRow } from './state.js'
 export {
@@ -19,6 +20,7 @@ export {
   type SweepReport,
 } from './engine.js'
 export { nacreIndex } from './nacre.js'
+export { BINARY_FORMATS, binaryContentType, contentTypeForExtension, isBinaryContentType, type BinaryFormat } from './formats.js'
 export { STATUS_CONTRACT, StatusBook, type Status } from './status.js'
 export { serve } from './http.js'
 export { runConnector, type Connector } from './run.js'

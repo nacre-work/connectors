@@ -15,9 +15,14 @@ export function nacreIndex(client: NacreClient): Index {
         const outcome = await client.documents.add({
           layer: doc.layer,
           externalId: doc.externalId,
-          content: doc.content,
           metadata: doc.metadata,
           ...(doc.title === undefined ? {} : { title: doc.title }),
+          // Text goes in the JSON body; a binary document goes up as the
+          // multipart form, under the type the source declared. The SDK
+          // refuses a request carrying neither or both.
+          ...(doc.bytes === undefined
+            ? { content: doc.content ?? '' }
+            : { bytes: doc.bytes, contentType: doc.contentType ?? '', filename: doc.externalId }),
         })
         return { documentId: outcome.documentId, unchanged: outcome.unchanged }
       } catch (e) {

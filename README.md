@@ -12,8 +12,11 @@ sync written once for a source many customers have. Apache 2.0, like the core.
 | connector | source | image |
 |---|---|---|
 | [`git`](connectors/git/README.md) | the text files of a git repository, a path rule per layer | `ghcr.io/nacre-work/connectors/git` |
-
-Planned, in this order: `s3`, `sql`, `drive`, `mongo`, `imap`.
+| [`s3`](connectors/s3/README.md) | the objects of a bucket — AWS, MinIO or any S3-compatible store — a key rule per layer, files as files | `ghcr.io/nacre-work/connectors/s3` |
+| [`sql`](connectors/sql/README.md) | the rows a query returns — Postgres, MySQL or MariaDB — a template over the columns per layer, a watermark or the row's hash as its version | `ghcr.io/nacre-work/connectors/sql` |
+| [`drive`](connectors/drive/README.md) | a Google Drive folder, recursively, or a shared drive — a path rule per layer, native files as files, a Google Doc as the Word file it exports to | `ghcr.io/nacre-work/connectors/drive` |
+| [`mongo`](connectors/mongo/README.md) | the documents a filter matches in a MongoDB collection, a template over the document's fields per layer, text only | `ghcr.io/nacre-work/connectors/mongo` |
+| [`imap`](connectors/imap/README.md) | the messages of a mailbox folder, a template over the headers per layer, attachments as files | `ghcr.io/nacre-work/connectors/imap` |
 
 ## Every connector
 
@@ -27,7 +30,7 @@ failure every rule here is against.
 | `NACRE_TOKEN` | A service account key holding `write` on every layer the connector maps to. `write` does not imply `read`, and the connector needs no `read`: it never searches | required |
 | `CONNECTOR_STATE` | The SQLite file remembering what was sent, in a volume | `/state/connector.sqlite` |
 | `SYNC_INTERVAL` | Seconds between sweeps, at least 10 | `300` |
-| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict | `false` |
+| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict. A source that leaves a connection open after the sweep does not keep the process alive: five seconds after the verdict it logs `exiting with handles still open` and exits with that verdict | `false` |
 | `PORT` | Where `/healthz`, `/status` and `/metrics` answer | `9400` |
 
 A sweep is a **complete listing** of the source. What it lists is added or

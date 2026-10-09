@@ -17,7 +17,7 @@
 name: connectors-live
 
 x-core: &core
-  image: ghcr.io/nacre-work/nacre:0.26.7
+  image: ghcr.io/nacre-work/nacre:0.27.0
   environment: &env
     NACRE_ENV: development
     NACRE_CANONICAL_URL: http://localhost:8080
@@ -33,6 +33,16 @@ x-core: &core
     NACRE_DEFAULT_EMBEDDING_DIM: "8"
     NACRE_RERANKER_ENABLED: "false"
     NACRE_MODULES: ""
+    # Object storage, so a binary document has somewhere to live: the s3
+    # connector sends a Word document through, and the index refuses every
+    # binary upload on a deployment without a bucket. The same MinIO holds the
+    # connector's *source* bucket under a different name.
+    NACRE_S3_ENDPOINT: http://minio:9000
+    NACRE_S3_BUCKET: nacre
+    NACRE_S3_REGION: us-east-1
+    NACRE_S3_ACCESS_KEY: live
+    NACRE_S3_SECRET_KEY: live-run-only-not-a-secret
+    NACRE_S3_FORCE_PATH_STYLE: "true"
 
 services:
   migrate:
@@ -53,6 +63,7 @@ services:
       redis: { condition: service_healthy }
       qdrant: { condition: service_started }
       stub-embedder: { condition: service_healthy }
+      minio: { condition: service_started }
   worker:
     <<: *core
     command: ["node", "packages/worker/dist/main.js"]
@@ -63,7 +74,7 @@ services:
       parser: { condition: service_started }
       stub-embedder: { condition: service_healthy }
   parser:
-    image: ghcr.io/nacre-work/nacre-parser:0.26.7
+    image: ghcr.io/nacre-work/nacre-parser:0.27.0
     expose: ["8090"]
   stub-embedder:
     image: ${LIVE_NODE_IMAGE:-node:24-alpine}
@@ -78,11 +89,65 @@ services:
       interval: 3s
       timeout: 2s
       retries: 10
+  source-drive:
+    # The drive connector's source: `scripts/ci/drive-stub.mjs` serving the
+    # directory `live.sh` writes as a Drive. There is no Google in CI, so this
+    # is what the connector's image is driven against — the API's shape, and
+    # nothing of Google. The directory is bind-mounted and read on every
+    # request, so the run's edits need no restart.
+    image: ${LIVE_NODE_IMAGE:-node:24-alpine}
+    entrypoint: ["node"]
+    command: ["/opt/stub/drive-stub.mjs"]
+    environment: { PORT: "9500", DRIVE_ROOT: /drive }
+    volumes: ["./scripts/ci:/opt/stub:ro", "./scripts/ci/.live-drive:/drive:ro"]
+    ports: ["9500:9500"]
+  minio:
+    # Chainguard's build, as the core's own CI: `minio/minio` left Docker Hub.
+    image: ${LIVE_MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment: { MINIO_ROOT_USER: live, MINIO_ROOT_PASSWORD: live-run-only-not-a-secret }
+    ports: ["9000:9000"]
+  # The mongo connector's source — a collection `live.sh` seeds and edits
+  # through mongosh. Published on the host for `LIVE_FROM_DIST=1`, no
+  # authentication because it holds two documents written by this script, and
+  # started with the rest so the one compose file stays one; a run for another
+  # connector never names it.
+  source-mongo:
+    image: ${LIVE_MONGO_IMAGE:-mongo:7}
+    ports: ["27017:27017"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  # The imap connector's source: a GreenMail with authentication off, so any
+  # credential signs in and a delivery creates the account it is addressed
+  # to. SMTP on 3025 is how the run writes a message, IMAP on 3143 is how the
+  # connector and the run's `delete` read the folder; the image's SMTP and
+  # IMAP are the only two of its servers the run touches.
+  source-imap:
+    image: ${LIVE_GREENMAIL_IMAGE:-greenmail/standalone:2.1.3}
+    environment:
+      GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
+    ports: ["3025:3025", "3143:3143"]
   postgres:
     image: ${LIVE_POSTGRES_IMAGE:-postgres:17-alpine}
     environment: { POSTGRES_USER: nacre, POSTGRES_PASSWORD: nacre, POSTGRES_DB: nacre }
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nacre -d nacre"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  # The sql connector's source: a second Postgres, never the index's own — a
+  # connector pointed at the database behind the index reads what it writes.
+  # Published on 5433 so `LIVE_FROM_DIST=1` reaches it from the host without
+  # taking the port a Postgres of the host's own would hold.
+  source-postgres:
+    image: ${LIVE_POSTGRES_IMAGE:-postgres:17-alpine}
+    environment: { POSTGRES_USER: source, POSTGRES_PASSWORD: source, POSTGRES_DB: source }
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U source -d source"]
       interval: 5s
       timeout: 5s
       retries: 10
