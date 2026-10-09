@@ -107,6 +107,29 @@ is fetched again. A refusal the *index* made is deliberately not remembered: it
 may have been the index's state rather than the document's, and nothing here
 should decide that a document is permanently unwanted.
 
+**The sql connector is two drivers behind one port, and a row is its own
+version.** A query offers no ETag — neither family of database carries a cheap
+version by itself — so the connector offers two and the operator picks. A
+watermark column is the cheap path the engine was built for, and its cost is
+the contract such a column already makes with everything that reads it: a row
+edited without `updated_at` moving is not re-sent, which is what the suite
+asserts as the proof that the hash was skipped. Without one, the version is a
+sha256 over the whole row in canonical key order, computed in the listing
+because the row is already in memory — the statement returned it — so a
+changed cell anywhere is a changed version and `fetch` returns nothing: the
+one source here whose expensive half is empty. Postgres and MySQL answer the
+port's one question, every row streamed, through `pg-cursor` and the driver's
+own row stream, and `source.ts` imports neither; the URL's scheme chooses, and
+an unknown one is refused at startup by name. Rows are text only: a `bytea`
+makes a row a `binary` skip naming the column, because a file in a row has no
+name and no type the index could be told, and files live in object stores.
+The first version of the watermark case failed on its own fixture — the test
+mapping rendered the watermark into the metadata, so moving it was a change
+the hash was right to see — and the case renders it no longer, which is the
+property stated rather than the test bent to pass. The live section drives a
+second Postgres beside the index's own, because a connector pointed at the
+database behind the index reads what it writes.
+
 `paths.ts` is the kit's because the second connector needed it: a path rule per
 layer and the path's fields (`dir`, `ext`, `top`, `name`) were git's, and s3
 keys are paths.

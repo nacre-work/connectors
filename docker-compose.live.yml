@@ -103,6 +103,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  # The sql connector's source: a second Postgres, never the index's own — a
+  # connector pointed at the database behind the index reads what it writes.
+  # Published on 5433 so `LIVE_FROM_DIST=1` reaches it from the host without
+  # taking the port a Postgres of the host's own would hold.
+  source-postgres:
+    image: ${LIVE_POSTGRES_IMAGE:-postgres:17-alpine}
+    environment: { POSTGRES_USER: source, POSTGRES_PASSWORD: source, POSTGRES_DB: source }
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U source -d source"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   qdrant:
     image: ${LIVE_QDRANT_IMAGE:-qdrant/qdrant:v1.18.3}
     expose: ["6333"]
