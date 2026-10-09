@@ -15,7 +15,7 @@
 # name rather than driven as git.
 set -euo pipefail
 CONNECTOR="${1:?which connector}"
-case "$CONNECTOR" in git|s3) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
+case "$CONNECTOR" in git|s3|drive) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
 cd "$(dirname "$0")/../.."
 COMPOSE="docker compose -f docker-compose.live.yml"
 API=http://localhost:8080
@@ -29,6 +29,10 @@ json() { node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); cons
 
 CORE=$(grep -oE 'ghcr.io/nacre-work/nacre:[0-9.]+' docker-compose.live.yml | head -1)
 say "core ${CORE}"
+# The stub Drive's directory, before the stack is up: a bind mount whose host
+# directory does not exist is created by the daemon, as root, and the drive
+# section could then not write into it.
+DRIVE_DIR="scripts/ci/.live-drive"; mkdir -p "$DRIVE_DIR"
 $COMPOSE up -d --quiet-pull
 # The index's bucket, whichever connector runs: the stack is configured with
 # object storage so a binary document has somewhere to live, `/v1/ready`
@@ -116,6 +120,47 @@ s3_prepare() {
 s3_change() { printf "$LEAVE2" > "$LIVE/leave.md"; s3 put source corp/docs/leave.md "$LIVE/leave.md" text/markdown; }
 s3_remove() { s3 rm source corp/docs/leave.md; }
 
+# --- drive ----------------------------------------------------------------
+# There is no Google in CI and no credential anywhere, so the connector's
+# image is driven against `scripts/ci/drive-stub.mjs`, a standard-library
+# server in the stack that serves a directory as a Drive through the routes
+# the connector calls: the assertion exchange, `files.list` with its query and
+# page token, `alt=media`, and `files.export`. The directory is read on every
+# request, so the two edits below take effect with no restart, and ids are
+# derived from paths so the connector's state can follow them across sweeps.
+#
+# What this proves is the connector against the API's *shape*: that a JWT it
+# signed is exchanged, that it pages a folder to the end, that a Google Doc
+# goes up as the Word file it exports to, and that the three verbs reach the
+# index. What it cannot prove is anything about Google — a field the stub
+# spells the way the documentation does and Google spells differently, a
+# quota, a shared drive's corpora, an export Google refuses — and that is the
+# honest limit of a run with no account behind it.
+#
+# The key is a throwaway pair generated here, never a real one and never
+# committed: the stub checks the assertion's shape and nothing of its
+# signature, since there is no key on that side to check against.
+drive_prepare() {
+  say "a Drive, served by the stub from ${DRIVE_DIR}"
+  rm -rf "${DRIVE_DIR:?}"/*; mkdir -p "$DRIVE_DIR/docs" "$DRIVE_DIR/src"
+  printf "$LEAVE1" > "$DRIVE_DIR/docs/leave.md"
+  printf "$CODE_TS" > "$DRIVE_DIR/src/a.ts"
+  # A Google Doc on disk: the `.gdoc` is listed as one, the `.docx` beside it
+  # is what its export serves and is not listed itself.
+  python3 scripts/ci/make-docx.py "$DRIVE_DIR/docs/budget.docx" "The word deltabudget is in a Word document."
+  : > "$DRIVE_DIR/docs/budget.gdoc"
+  node -e "const {generateKeyPairSync}=require('node:crypto');const k=generateKeyPairSync('rsa',{modulusLength:2048});require('node:fs').writeFileSync(process.argv[1],JSON.stringify({type:'service_account',client_email:'live@example.iam.gserviceaccount.com',private_key:k.privateKey.export({type:'pkcs8',format:'pem'})}))" "$LIVE/sa.json"
+  for _ in $(seq 1 20); do curl -sf http://localhost:9500/health >/dev/null && break; sleep 1; done
+  curl -sf http://localhost:9500/health >/dev/null || die "the stub Drive never answered on :9500"
+  ADDED=3
+  MOUNTS=(-v "$LIVE/sa.json:/run/sa.json:ro")
+  local stub; stub="$([ "${LIVE_FROM_DIST:-}" = 1 ] && echo http://localhost:9500 || echo http://source-drive:9500)"
+  CONNECTOR_ENV=(DRIVE_API="$stub" DRIVE_TOKEN_URL="$stub/token" DRIVE_FOLDER=root "DRIVE_LAYERS=$LAYERS"
+    DRIVE_CREDENTIALS="$([ "${LIVE_FROM_DIST:-}" = 1 ] && echo "$LIVE/sa.json" || echo /run/sa.json)")
+}
+drive_change() { printf "$LEAVE2" > "$DRIVE_DIR/docs/leave.md"; }
+drive_remove() { rm "$DRIVE_DIR/docs/leave.md"; }
+
 "${CONNECTOR}_prepare"
 with_env() { local out=(); local kv; for kv in "${CONNECTOR_ENV[@]}"; do out+=(-e "$kv"); done; printf '%s\n' "${out[@]}"; }
 run_connector() { # detached? extra-env… → runs the connector once (SYNC_ONCE) or as a service
@@ -168,7 +213,7 @@ LOG=$(run_once); echo "$LOG"
 echo "$LOG" | grep -q "\"added\":${ADDED}" || die "the first sweep did not report ${ADDED} documents added"
 wait_for leave.md alphaleave || die "docs/leave.md never arrived in a search by the reader"
 wait_for a.ts betacode || die "src/a.ts never arrived in a search by the reader"
-if [ "$CONNECTOR" = s3 ]; then
+if [ "$CONNECTOR" = s3 ] || [ "$CONNECTOR" = drive ]; then
   wait_for budget.docx deltabudget || die "the Word document's text never arrived: the bytes went up as a file and the core read them, or they did not"
 fi
 search leave.md | json "d.items.find(h=>h.title==='leave.md').layer==='handbook' ? 'ok' : undefined" >/dev/null || die "leave.md is not in the handbook layer"

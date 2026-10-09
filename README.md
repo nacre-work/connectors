@@ -13,8 +13,9 @@ sync written once for a source many customers have. Apache 2.0, like the core.
 |---|---|---|
 | [`git`](connectors/git/README.md) | the text files of a git repository, a path rule per layer | `ghcr.io/nacre-work/connectors/git` |
 | [`s3`](connectors/s3/README.md) | the objects of a bucket — AWS, MinIO or any S3-compatible store — a key rule per layer, files as files | `ghcr.io/nacre-work/connectors/s3` |
+| [`drive`](connectors/drive/README.md) | a Google Drive folder, recursively, or a shared drive — a path rule per layer, native files as files, a Google Doc as the Word file it exports to | `ghcr.io/nacre-work/connectors/drive` |
 
-Planned, in this order: `sql`, `drive`, `mongo`, `imap`.
+Planned, in this order: `sql`, `mongo`, `imap`.
 
 ## Every connector
 

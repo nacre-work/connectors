@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [git, s3]
+        connector: [git, s3, drive]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

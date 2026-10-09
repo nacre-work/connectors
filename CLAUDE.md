@@ -34,7 +34,7 @@ Per source, the signal is different and the engine does not care:
 | git | the blob hash moved | the path left the tree — definitive, which is why this *may* delete where the core's `nacre ingest --watch` must not: a commit has no editor-save race |
 | s3 | ETag | the key is gone |
 | sql | a watermark column, or the row hash | the row is not in the query's result |
-| drive | `changes.list` | removed or trashed |
+| drive | `md5Checksum`; for a Google document, which has no bytes to checksum, `modifiedTime` with `version` | absent from a complete walk of the folder — trashed or deleted; the trash is still there to take it back |
 | mongo | a change stream or a date field | the document is gone |
 | imap | UIDVALIDITY + UID | the message left the folder |
 
@@ -147,6 +147,32 @@ the image, for a sandbox whose Docker daemon cannot reach a registry through
 its own TLS proxy; the summary line says which it ran, because a run that
 measured the source is not a run that measured the artifact, and CI never
 sets it.
+
+**The drive connector walks a folder and carries no client library, and the
+run that proves it has no Google behind it.** `googleapis` would bring four
+hundred packages into an image whose job is reading other people's documents
+to make three calls — list a folder, download a file, export a document — on
+a credential that is a JSON file holding an RSA key; `node:crypto` signs the
+assertion and `fetch` exchanges it, in `google.ts`, behind a `Drive` port the
+suite fakes. That is not the s3 decision reversed: the AWS SDK is carried for
+a credential *chain*, and a service account key is not a chain. The table
+above said `changes.list` for this connector before it was written, and a
+full walk is what was built — a complete listing is what licenses removal
+everywhere else here, and a change feed that drops a page would call nothing
+gone while believing itself complete. A Google Doc has no bytes, so it goes up
+as the Word file Drive exports it to, a Sheet as Excel, a Slides deck as
+PowerPoint — three rows of the kit's table — with the extension put on its
+name so the rules, the `external_id` and the index agree on it; a form or a
+drawing exports to nothing the index reads and is skipped as `unmapped`. And
+there is no Google in CI and no credential anywhere, so the live section
+drives the connector's image against `scripts/ci/drive-stub.mjs`, a
+standard-library server in the stack that serves a directory as a Drive
+through the connector's four routes, paging at one so paging is exercised.
+That proves the connector against the API's *shape* and the three verbs
+against the index; it proves nothing about Google — a field spelled the way
+the documentation says and not the way Google answers, a quota, a shared
+drive's corpora — which is the honest limit of a run with no account, and the
+README claims nothing past it.
 
 ## Checks
 

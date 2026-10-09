@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .env
 /state/
+# The live run's stub Drive: written by live.sh, served by the stub, never committed.
+scripts/ci/.live-drive/
