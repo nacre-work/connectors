@@ -30,7 +30,7 @@ failure every rule here is against.
 | `NACRE_TOKEN` | A service account key holding `write` on every layer the connector maps to. `write` does not imply `read`, and the connector needs no `read`: it never searches | required |
 | `CONNECTOR_STATE` | The SQLite file remembering what was sent, in a volume | `/state/connector.sqlite` |
 | `SYNC_INTERVAL` | Seconds between sweeps, at least 10 | `300` |
-| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict | `false` |
+| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict. A source that leaves a connection open after the sweep does not keep the process alive: five seconds after the verdict it logs `exiting with handles still open` and exits with that verdict | `false` |
 | `PORT` | Where `/healthz`, `/status` and `/metrics` answer | `9400` |
 
 A sweep is a **complete listing** of the source. What it lists is added or
