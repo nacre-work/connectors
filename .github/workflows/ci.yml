@@ -22,6 +22,7 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm lint:cla
       - run: pnpm lint:config
       - run: pnpm lint:formats
       - run: pnpm lint:images
