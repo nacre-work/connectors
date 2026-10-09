@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [git, s3, sql, drive, mongo]
+        connector: [git, s3, sql, drive, mongo, imap]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

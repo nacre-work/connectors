@@ -1,0 +1,16 @@
+{
+  "name": "@nacre.work/connector-imap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Syncs a mailbox folder into Nacre layers: a message is a document, a template over its headers picks its layer, an attachment the index reads is a document of its own, a message that left the folder is a removed document",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@nacre.work/connector-kit": "workspace:*",
+    "imapflow": "^2.3.0",
+    "mailparser": "^3.9.37"
+  },
+  "devDependencies": { "@types/mailparser": "^3.9.0", "@types/node": "^24.0.0" },
+  "engines": { "node": ">=24" }
+}

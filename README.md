@@ -16,8 +16,7 @@ sync written once for a source many customers have. Apache 2.0, like the core.
 | [`sql`](connectors/sql/README.md) | the rows a query returns — Postgres, MySQL or MariaDB — a template over the columns per layer, a watermark or the row's hash as its version | `ghcr.io/nacre-work/connectors/sql` |
 | [`drive`](connectors/drive/README.md) | a Google Drive folder, recursively, or a shared drive — a path rule per layer, native files as files, a Google Doc as the Word file it exports to | `ghcr.io/nacre-work/connectors/drive` |
 | [`mongo`](connectors/mongo/README.md) | the documents a filter matches in a MongoDB collection, a template over the document's fields per layer, text only | `ghcr.io/nacre-work/connectors/mongo` |
-
-Planned, in this order: `imap`.
+| [`imap`](connectors/imap/README.md) | the messages of a mailbox folder, a template over the headers per layer, attachments as files | `ghcr.io/nacre-work/connectors/imap` |
 
 ## Every connector
 
