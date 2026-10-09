@@ -191,7 +191,11 @@ drive_remove() { rm "$DRIVE_DIR/docs/leave.md"; }
 # rule cannot ask. The two edits are an `updateOne` and a `deleteOne`, so the
 # change arrives as a document whose hash moved and the removal as one the
 # cursor no longer returns.
-mongo_eval() { $COMPOSE exec -T source-mongo mongosh --quiet source --eval "$1"; }
+# `</dev/null`, and the live job hung for thirty minutes without it: compose's
+# `exec -T` leaves stdin attached as an open pipe, and mongosh reads a piped
+# stdin as a script once `--eval` has run — so it evaluated the ping and then
+# waited for an EOF nobody was going to send. The redirect is that EOF.
+mongo_eval() { $COMPOSE exec -T source-mongo mongosh --quiet source --eval "$1" </dev/null; }
 jstr() { node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0, "utf8")))'; } # stdin, so the text's last newline survives
 mongo_prepare() {
   say "a docs collection with two documents"
