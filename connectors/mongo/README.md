@@ -13,7 +13,7 @@ docker run -v mongo-state:/state \
   -e MONGO_URL=mongodb://sync:...@mongo.internal:27017/corp -e MONGO_COLLECTION=articles \
   -e 'MONGO_FILTER={"status":"published"}' -e MONGO_VERSION=updated_at \
   -e 'MONGO_LAYER=${section}' -e 'MONGO_TITLE=${title}' -e 'MONGO_CONTENT=${body}' \
-  ghcr.io/nacre-work/connectors/mongo:0.1.0
+  ghcr.io/nacre-work/connectors/mongo:0.1.1
 ```
 
 The shared variables are in the [root README](../../README.md). This connector

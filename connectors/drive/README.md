@@ -11,7 +11,7 @@ docker run -v drive-state:/state -v ./service-account.json:/run/sa.json:ro \
   -e NACRE_URL=https://nacre.example.com -e NACRE_TOKEN=... \
   -e DRIVE_CREDENTIALS=/run/sa.json -e DRIVE_FOLDER=1AbC...xYz \
   -e 'DRIVE_LAYERS=Policies/**=handbook;Engineering/**=engineering' \
-  ghcr.io/nacre-work/connectors/drive:0.1.0
+  ghcr.io/nacre-work/connectors/drive:0.1.1
 ```
 
 The service account needs to be able to read the folder: share the folder

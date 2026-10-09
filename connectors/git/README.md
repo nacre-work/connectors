@@ -10,7 +10,7 @@ docker run -v git-state:/state \
   -e NACRE_URL=https://nacre.example.com -e NACRE_TOKEN=... \
   -e GIT_URL=https://github.com/acme/handbook -e GIT_TOKEN=... \
   -e 'GIT_LAYERS=docs/**=handbook;src/**=code' \
-  ghcr.io/nacre-work/connectors/git:0.1.0
+  ghcr.io/nacre-work/connectors/git:0.1.1
 ```
 
 The shared variables are in the [root README](../../README.md). This connector

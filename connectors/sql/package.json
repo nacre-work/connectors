@@ -1,6 +1,6 @@
 {
   "name": "@nacre.work/connector-sql",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Syncs the rows a SQL query returns — Postgres, MySQL or MariaDB — into Nacre layers: a row is a document, a template over its columns picks the layer, a row the query stopped returning is a removed document",
   "license": "Apache-2.0",
