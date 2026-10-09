@@ -15,7 +15,7 @@
 # name rather than driven as git.
 set -euo pipefail
 CONNECTOR="${1:?which connector}"
-case "$CONNECTOR" in git|s3) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
+case "$CONNECTOR" in git|s3|sql) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
 cd "$(dirname "$0")/../.."
 COMPOSE="docker compose -f docker-compose.live.yml"
 API=http://localhost:8080
@@ -67,12 +67,12 @@ NET="connectors-live_default"
 STATE="$LIVE/state"; mkdir -p "$STATE"; chmod 777 "$STATE"
 if [ "${LIVE_FROM_DIST:-}" = 1 ]; then
   RAN="the built dist on this host, not the image"
-  API_HOST=localhost; MINIO_HOST=localhost
+  API_HOST=localhost; MINIO_HOST=localhost; SOURCE_PG=localhost:5433
 else
   say "the connector image"
   docker build -q ${LIVE_NODE_IMAGE:+--build-arg BASE="$LIVE_NODE_IMAGE"} -f "connectors/${CONNECTOR}/Dockerfile" -t "connector-${CONNECTOR}:live" . >/dev/null
   RAN="the image"
-  API_HOST=api; MINIO_HOST=minio
+  API_HOST=api; MINIO_HOST=minio; SOURCE_PG=source-postgres:5432
 fi
 LEAVE1='# Leave\n\nThe word alphaleave appears only in this document.\n'
 LEAVE2='# Leave\n\nThe word gammaleave replaced the old one.\n'
@@ -115,6 +115,27 @@ s3_prepare() {
 }
 s3_change() { printf "$LEAVE2" > "$LIVE/leave.md"; s3 put source corp/docs/leave.md "$LIVE/leave.md" text/markdown; }
 s3_remove() { s3 rm source corp/docs/leave.md; }
+
+# --- sql ------------------------------------------------------------------
+# A second Postgres, `source-postgres`, which the connector queries. Never the
+# index's own: a connector pointed at the database behind the index is a
+# connector reading what it writes, and a run that measured that would have
+# measured nothing. The rows carry a `kind` column so the layer is a template
+# over the row rather than a constant, and `updated_at` is the watermark the
+# change moves — the row-hash path is the suite's.
+psql_source() { $COMPOSE exec -T source-postgres psql -v ON_ERROR_STOP=1 -q -U source -d source -c "$1" >/dev/null; }
+sql_prepare() {
+  say "a documents table with two rows"
+  for _ in $(seq 1 30); do $COMPOSE exec -T source-postgres pg_isready -U source -d source >/dev/null 2>&1 && break; sleep 2; done
+  psql_source "CREATE TABLE documents (id serial PRIMARY KEY, kind text NOT NULL, title text NOT NULL, body text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())"
+  psql_source "INSERT INTO documents (kind, title, body) VALUES ('handbook', 'leave.md', E'$LEAVE1'), ('code', 'a.ts', E'$CODE_TS')"
+  ADDED=2
+  MOUNTS=()
+  CONNECTOR_ENV=(SQL_URL="postgres://source:source@${SOURCE_PG}/source" "SQL_QUERY=SELECT id, kind, title, body, updated_at FROM documents"
+    'SQL_LAYER=${kind}' 'SQL_CONTENT=${body}' SQL_VERSION=updated_at)
+}
+sql_change() { psql_source "UPDATE documents SET body = E'$LEAVE2', updated_at = now() WHERE title = 'leave.md'"; }
+sql_remove() { psql_source "DELETE FROM documents WHERE title = 'leave.md'"; }
 
 "${CONNECTOR}_prepare"
 with_env() { local out=(); local kv; for kv in "${CONNECTOR_ENV[@]}"; do out+=(-e "$kv"); done; printf '%s\n' "${out[@]}"; }
