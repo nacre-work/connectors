@@ -15,7 +15,7 @@
 # name rather than driven as git.
 set -euo pipefail
 CONNECTOR="${1:?which connector}"
-case "$CONNECTOR" in git|s3|sql|drive) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
+case "$CONNECTOR" in git|s3|sql|drive|mongo) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
 cd "$(dirname "$0")/../.."
 COMPOSE="docker compose -f docker-compose.live.yml"
 API=http://localhost:8080
@@ -72,11 +72,13 @@ STATE="$LIVE/state"; mkdir -p "$STATE"; chmod 777 "$STATE"
 if [ "${LIVE_FROM_DIST:-}" = 1 ]; then
   RAN="the built dist on this host, not the image"
   API_HOST=localhost; MINIO_HOST=localhost; SOURCE_PG=localhost:5433
+  API_HOST=localhost; MINIO_HOST=localhost; MONGO_HOST=localhost
 else
   say "the connector image"
   docker build -q ${LIVE_NODE_IMAGE:+--build-arg BASE="$LIVE_NODE_IMAGE"} -f "connectors/${CONNECTOR}/Dockerfile" -t "connector-${CONNECTOR}:live" . >/dev/null
   RAN="the image"
   API_HOST=api; MINIO_HOST=minio; SOURCE_PG=source-postgres:5432
+  API_HOST=api; MINIO_HOST=minio; MONGO_HOST=source-mongo
 fi
 LEAVE1='# Leave\n\nThe word alphaleave appears only in this document.\n'
 LEAVE2='# Leave\n\nThe word gammaleave replaced the old one.\n'
@@ -180,6 +182,26 @@ drive_prepare() {
 }
 drive_change() { printf "$LEAVE2" > "$DRIVE_DIR/docs/leave.md"; }
 drive_remove() { rm "$DRIVE_DIR/docs/leave.md"; }
+# --- mongo ----------------------------------------------------------------
+# A `docs` collection in the stack's own MongoDB, seeded through mongosh with
+# the same two texts the other sources carry, as `title`, `kind` and `body`
+# fields — the layer is the document's own `kind`, which is the case a path
+# rule cannot ask. The two edits are an `updateOne` and a `deleteOne`, so the
+# change arrives as a document whose hash moved and the removal as one the
+# cursor no longer returns.
+mongo_eval() { $COMPOSE exec -T source-mongo mongosh --quiet source --eval "$1"; }
+jstr() { node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0, "utf8")))'; } # stdin, so the text's last newline survives
+mongo_prepare() {
+  say "a docs collection with two documents"
+  for _ in $(seq 1 30); do mongo_eval 'db.runCommand({ping:1}).ok' 2>/dev/null | grep -q 1 && break; sleep 2; done
+  mongo_eval 'db.runCommand({ping:1}).ok' | grep -q 1 || die "the source MongoDB never answered a ping"
+  mongo_eval "db.docs.insertMany([{title:'leave.md',kind:'handbook',body:$(printf "$LEAVE1" | jstr)},{title:'a.ts',kind:'code',body:$(printf "$CODE_TS" | jstr)}])" >/dev/null
+  ADDED=2
+  MOUNTS=()
+  CONNECTOR_ENV=(MONGO_URL="mongodb://${MONGO_HOST}:27017/source" MONGO_COLLECTION=docs 'MONGO_LAYER=${kind}' 'MONGO_TITLE=${title}' 'MONGO_CONTENT=${body}')
+}
+mongo_change() { mongo_eval "db.docs.updateOne({title:'leave.md'},{\$set:{body:$(printf "$LEAVE2" | jstr)}})" >/dev/null; }
+mongo_remove() { mongo_eval "db.docs.deleteOne({title:'leave.md'})" >/dev/null; }
 
 "${CONNECTOR}_prepare"
 with_env() { local out=(); local kv; for kv in "${CONNECTOR_ENV[@]}"; do out+=(-e "$kv"); done; printf '%s\n' "${out[@]}"; }
