@@ -160,7 +160,12 @@ Writing it found that the kit's `redactUrl` hands a replica set's connection
 string — `mongodb://a:27017,b:27017/db` — back **unchanged**, because WHATWG
 `URL` refuses the host list, so a credential in one would have reached
 `/status` whole; the connector reads the string by its own grammar and builds
-what `/status` shows from the parts.
+what `/status` shows from the parts. The kit is repaired too rather than only
+routed around: a connector that forgets to is the next instance, so
+`redactUrl` cuts the userinfo before the `@` of anything shaped
+`scheme://…@…` whether or not the standard parser reads it, and
+`log.test.ts` pins the replica-set spelling, a Postgres failover list and a
+password carrying an `@` of its own.
 
 ## What a connector is not written until
 
