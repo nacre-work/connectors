@@ -15,7 +15,7 @@
 # name rather than driven as git.
 set -euo pipefail
 CONNECTOR="${1:?which connector}"
-case "$CONNECTOR" in git|s3) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
+case "$CONNECTOR" in git|s3|imap) ;; *) echo "::error::live.sh has no section for ${CONNECTOR}; write one before adding it to the matrix"; exit 1 ;; esac
 cd "$(dirname "$0")/../.."
 COMPOSE="docker compose -f docker-compose.live.yml"
 API=http://localhost:8080
@@ -67,12 +67,12 @@ NET="connectors-live_default"
 STATE="$LIVE/state"; mkdir -p "$STATE"; chmod 777 "$STATE"
 if [ "${LIVE_FROM_DIST:-}" = 1 ]; then
   RAN="the built dist on this host, not the image"
-  API_HOST=localhost; MINIO_HOST=localhost
+  API_HOST=localhost; MINIO_HOST=localhost; IMAP_HOST=localhost
 else
   say "the connector image"
   docker build -q ${LIVE_NODE_IMAGE:+--build-arg BASE="$LIVE_NODE_IMAGE"} -f "connectors/${CONNECTOR}/Dockerfile" -t "connector-${CONNECTOR}:live" . >/dev/null
   RAN="the image"
-  API_HOST=api; MINIO_HOST=minio
+  API_HOST=api; MINIO_HOST=minio; IMAP_HOST=source-imap
 fi
 LEAVE1='# Leave\n\nThe word alphaleave appears only in this document.\n'
 LEAVE2='# Leave\n\nThe word gammaleave replaced the old one.\n'
@@ -115,6 +115,30 @@ s3_prepare() {
 }
 s3_change() { printf "$LEAVE2" > "$LIVE/leave.md"; s3 put source corp/docs/leave.md "$LIVE/leave.md" text/markdown; }
 s3_remove() { s3 rm source corp/docs/leave.md; }
+
+# --- imap -----------------------------------------------------------------
+# A GreenMail in the stack, `source-imap`, with authentication off: a message
+# sent to live@example.com over SMTP lands in that account's INBOX, and the
+# account is created by the delivery with its **address as its login** — so
+# the connector signs in as `live@example.com`, percent-encoded, and not as
+# `live`, which would be a second, empty account minted by the sign-in. The
+# layer comes from an `X-Layer` header, which is the field a mail source has
+# where a path source has a directory. The change is what a mail client does
+# to a draft: the message is deleted and a corrected copy appended under the
+# same Message-ID, so the connector must report a change and not a removal.
+mail() { node scripts/ci/mail.mjs "$@"; }
+imap_prepare() {
+  say "a mailbox with two messages in INBOX"
+  for _ in $(seq 1 30); do mail send live@example.com probe "<probe@live>" probe "warming up" 2>/dev/null && break; sleep 2; done
+  mail delete "<probe@live>"
+  mail send live@example.com leave.md "<leave@live>" handbook "$(printf "$LEAVE1")"
+  mail send live@example.com a.ts "<code@live>" code "$(printf "$CODE_TS")"
+  ADDED=2
+  MOUNTS=()
+  CONNECTOR_ENV=(IMAP_URL="imap://live%40example.com:live@${IMAP_HOST}:3143/INBOX" 'IMAP_LAYER=${header_x_layer}')
+}
+imap_change() { mail delete "<leave@live>"; mail send live@example.com leave.md "<leave@live>" handbook "$(printf "$LEAVE2")"; }
+imap_remove() { mail delete "<leave@live>"; }
 
 "${CONNECTOR}_prepare"
 with_env() { local out=(); local kv; for kv in "${CONNECTOR_ENV[@]}"; do out+=(-e "$kv"); done; printf '%s\n' "${out[@]}"; }

@@ -107,6 +107,32 @@ is fetched again. A refusal the *index* made is deliberately not remembered: it
 may have been the index's state rather than the document's, and nothing here
 should decide that a document is permanently unwanted.
 
+**A message's identity is its `Message-ID` and its version is
+`uidvalidity:uid`, and the imap connector is built on those being two
+different things.** A message never changes in place, so a UID looks like an
+identity — and it is the wrong one: mail clients re-append a corrected copy
+under the same `Message-ID` (a draft saved again, a note an app keeps as
+mail), which under UID identity is a removal and an add of two documents and
+under `Message-ID` identity is a change to one. A message with no `Message-ID`
+falls back to `uidvalidity:uid`; a folder the server rebuilt re-versions every
+message, and that is correct and cheap, because the hash still decides whether
+the index is touched. The listing reads the **body structure** beside the
+envelope and the headers, so an attachment's name and declared type are known
+without a byte of body downloaded, and an attachment the format table admits
+is a document of its own (`<message id>/<filename>`) in the message's layer —
+files go up as files here too, which is why imap came after the core release
+that reads them. The source is downloaded once per sweep however many
+attachments a message carries, and the IMAP client is paged `SEARCH` and
+`FETCH` rather than `imapflow`'s generator, because that generator holds the
+line with backpressure until every row is consumed and the engine downloads
+between two rows. `IMAP_SINCE` bounds the listing by the server's own date,
+and an older message is treated as gone — moving the date is a removal,
+which the README says in those words. The live source is a GreenMail with
+authentication off, and the one thing worth knowing about it is that a
+delivery creates the account with its **address as its login**, so the
+connector signs in as `live%40example.com` and not as `live`, which would be a
+second, empty account minted by the sign-in itself.
+
 `paths.ts` is the kit's because the second connector needed it: a path rule per
 layer and the path's fields (`dir`, `ext`, `top`, `name`) were git's, and s3
 keys are paths.
@@ -142,7 +168,10 @@ and a connector in a workflow matrix without a section is refused by name. The
 s3 section runs the stack with object storage and sends a Word document
 through: the bytes go up as a file, the core extracts the text, and the phrase
 comes back out of a search, which is the case the suite's in-memory bucket
-cannot ask. `LIVE_FROM_DIST=1` runs the built `dist` on the host instead of
+cannot ask. The imap section's change is what a mail client does to a draft —
+the message deleted and a corrected copy appended under the same
+`Message-ID` — so what it watches is that the connector reports a change and
+not a removal. `LIVE_FROM_DIST=1` runs the built `dist` on the host instead of
 the image, for a sandbox whose Docker daemon cannot reach a registry through
 its own TLS proxy; the summary line says which it ran, because a run that
 measured the source is not a run that measured the artifact, and CI never
