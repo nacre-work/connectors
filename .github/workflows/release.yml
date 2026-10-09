@@ -83,19 +83,33 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Docker Hub is a mirror and ghcr.io stays canonical — the READMEs name
+      # ghcr.io, and Docker Hub rate-limits pulls by account. Its namespace is
+      # flat, so `connectors/<name>` becomes `connector-<name>` there. The two
+      # secrets are the organization's; a missing one fails here by name rather
+      # than quietly publishing to one registry of two.
+      - uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PAT }}
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: connectors/${{ matrix.connector }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }}
-      - name: the pushed manifest carries both architectures
+          tags: |
+            ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }}
+            docker.io/nacrecontextlayer/connector-${{ matrix.connector }}:${{ needs.decide.outputs.version }}
+      - name: the pushed manifest carries both architectures, on both registries
         run: |
           set -eu
-          archs=$(docker buildx imagetools inspect ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }} | grep -oE 'linux/(amd64|arm64)' | sort -u | tr '\n' ' ')
-          echo "$archs"
-          case "$archs" in *amd64*arm64*) ;; *) echo '::error::not both architectures'; exit 1;; esac
+          for ref in ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }} docker.io/nacrecontextlayer/connector-${{ matrix.connector }}:${{ needs.decide.outputs.version }}; do
+            archs=$(docker buildx imagetools inspect "$ref" | grep -oE 'linux/(amd64|arm64)' | sort -u | tr '\n' ' ')
+            echo "$ref -> $archs"
+            case "$archs" in *amd64*arm64*) ;; *) echo "::error::$ref: not both architectures"; exit 1;; esac
+          done
 
   # After every image is pushed, never before, and idempotent on each half so
   # a re-run over a release that half succeeded finishes it rather than
@@ -126,7 +140,7 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "v$VERSION already has a release"
           else
-            images=$(for d in connectors/*/; do n=$(basename "$d"); echo "- \`ghcr.io/nacre-work/connectors/$n:$VERSION\`"; done)
+            images=$(for d in connectors/*/; do n=$(basename "$d"); echo "- \`ghcr.io/nacre-work/connectors/$n:$VERSION\` (mirrored as \`docker.io/nacrecontextlayer/connector-$n:$VERSION\`)"; done)
             gh release create "v$VERSION" --title "v$VERSION" --generate-notes \
               --notes "$(printf '### Images\n\n%s\n' "$images")"
           fi
