@@ -89,6 +89,18 @@ services:
       interval: 3s
       timeout: 2s
       retries: 10
+  source-drive:
+    # The drive connector's source: `scripts/ci/drive-stub.mjs` serving the
+    # directory `live.sh` writes as a Drive. There is no Google in CI, so this
+    # is what the connector's image is driven against — the API's shape, and
+    # nothing of Google. The directory is bind-mounted and read on every
+    # request, so the run's edits need no restart.
+    image: ${LIVE_NODE_IMAGE:-node:24-alpine}
+    entrypoint: ["node"]
+    command: ["/opt/stub/drive-stub.mjs"]
+    environment: { PORT: "9500", DRIVE_ROOT: /drive }
+    volumes: ["./scripts/ci:/opt/stub:ro", "./scripts/ci/.live-drive:/drive:ro"]
+    ports: ["9500:9500"]
   minio:
     # Chainguard's build, as the core's own CI: `minio/minio` left Docker Hub.
     image: ${LIVE_MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
