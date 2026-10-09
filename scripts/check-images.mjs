@@ -57,6 +57,22 @@ for (const wf of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) 
   for (const name of listed) if (!connectors.includes(name)) fail(`${wf}: the matrix builds ${name}, which is not under connectors/`)
 }
 
+// The Docker Hub mirror: the release's push step tags both registries for
+// the connector it builds, and reads both manifests back. Held here because a
+// registry that is in `tags:` and not in the architecture loop is a mirror
+// that can be one architecture short with nothing saying so.
+{
+  const wf = '.github/workflows/release.yml'
+  const text = existsSync(wf) ? readFileSync(wf, 'utf8') : ''
+  const canonical = 'ghcr.io/nacre-work/connectors/${{ matrix.connector }}:${{ needs.decide.outputs.version }}'
+  const mirror = 'docker.io/nacrecontextlayer/connector-${{ matrix.connector }}:${{ needs.decide.outputs.version }}'
+  const tags = /tags:\s*\|\n((?:[ \t]+\S[^\n]*\n)+)/.exec(text)?.[1] ?? ''
+  for (const ref of [canonical, mirror]) {
+    if (!tags.includes(ref)) fail(`${wf}: the push step does not tag ${ref}`)
+    if (text.split(ref).length - 1 < 2) fail(`${wf}: the architecture check does not read ${ref} back`)
+  }
+}
+
 if (problems.length > 0) {
   for (const p of problems) console.error(`::error::${p}`)
   process.exit(1)

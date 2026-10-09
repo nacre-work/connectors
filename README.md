@@ -18,6 +18,11 @@ sync written once for a source many customers have. Apache 2.0, like the core.
 | [`mongo`](connectors/mongo/README.md) | the documents a filter matches in a MongoDB collection, a template over the document's fields per layer, text only | `ghcr.io/nacre-work/connectors/mongo` |
 | [`imap`](connectors/imap/README.md) | the messages of a mailbox folder, a template over the headers per layer, attachments as files | `ghcr.io/nacre-work/connectors/imap` |
 
+Every image is also on Docker Hub as `nacrecontextlayer/connector-<name>`,
+pushed by the same build at the same version. `ghcr.io` is the canonical
+address — Docker Hub rate-limits pulls by account, and nothing here reads
+the mirror back.
+
 ## Every connector
 
 Reads these, whatever its source. Refuses to start on a missing or malformed

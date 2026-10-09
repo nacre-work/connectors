@@ -68,7 +68,11 @@ Agreed with the product owner before the first line, in this order:
   added by raising the number and never renamed under it, so a reader this
   repository does not know about can read it without this repository changing.
 - **One connector, one image**: `ghcr.io/nacre-work/connectors/<name>`, every
-  connector at one version, one tag releases them all.
+  connector at one version, one tag releases them all. Mirrored to Docker Hub
+  as `nacrecontextlayer/connector-<name>` by the same build — the namespace
+  there is flat — and `lint:images` holds the mirror tag beside the canonical
+  one, because a registry added to one push step and not the next is this
+  repository's own doctrine arriving in a workflow.
 
 ## What the kit is
 

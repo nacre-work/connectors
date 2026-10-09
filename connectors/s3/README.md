@@ -11,7 +11,7 @@ docker run -v s3-state:/state \
   -e NACRE_URL=https://nacre.example.com -e NACRE_TOKEN=... \
   -e S3_BUCKET=corp-documents -e S3_PREFIX=handbook/ -e S3_REGION=eu-central-1 \
   -e 'S3_LAYERS=policies/**=handbook;engineering/**=engineering' \
-  ghcr.io/nacre-work/connectors/s3:0.1.0
+  ghcr.io/nacre-work/connectors/s3:0.1.1
 ```
 
 The shared variables are in the [root README](../../README.md). This connector
