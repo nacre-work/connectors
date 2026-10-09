@@ -34,8 +34,18 @@ export function mongoCollection(o: DriverOptions): Collection {
   const collection = client.db(o.database).collection(o.collection)
   return {
     async *find(filter: Document, projection: Document | undefined): AsyncIterable<Document> {
-      const cursor = collection.find(BSON.EJSON.deserialize(filter as BSON.Document), projection === undefined ? {} : { projection })
-      for await (const doc of cursor) yield doc as Document
+      try {
+        const cursor = collection.find(BSON.EJSON.deserialize(filter as BSON.Document), projection === undefined ? {} : { projection })
+        for await (const doc of cursor) yield doc as Document
+      } finally {
+        // A connection per sweep, the sql and imap connectors' rule, and here
+        // it is also what lets the process end: the driver's pool and its
+        // monitors are live handles, and a one-shot run that leaves them
+        // open sets its exit code and then waits forever. Measured in CI —
+        // `verb 1: add` sat for thirty minutes with the sweep long done. A
+        // closed client reconnects on the next sweep's `find`.
+        await client.close()
+      }
     },
   }
 }

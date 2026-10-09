@@ -24,6 +24,9 @@ export interface Connector {
   open(config: KitConfig): Promise<Source>
 }
 
+/** How long a one-shot run waits for a leaked handle before it exits anyway. */
+export const LEAK_GRACE_MS = 5_000
+
 export async function runConnector(connector: Connector): Promise<void> {
   const config = kitConfig()
   const mapping = compileMapping(connector.mapping, `${connector.name} mapping`)
@@ -77,6 +80,17 @@ export async function runConnector(connector: Connector): Promise<void> {
     // A sweep that could not list the source, or could not get every document
     // the index should have taken, is a failed run — the exit code says so.
     process.exitCode = r.complete && r.failed === 0 ? 0 : 1
+    // The process ends when the loop drains, and a source that leaves a
+    // handle open — a driver's pool, a monitor timer — keeps it from
+    // draining: the verdict is set and nothing reads it, because nothing
+    // exits. The mongo connector did exactly that, for thirty minutes of a
+    // CI job, with the sweep long done. So a one-shot run says what it is
+    // waiting on and leaves, with the verdict it already reached. Unref'd,
+    // so the timer itself is not what keeps the loop alive.
+    setTimeout(() => {
+      log('exiting with handles still open', { connector: connector.name, detail: 'the source left a connection or a timer open after the sweep; close it in list()', exit: process.exitCode })
+      process.exit(process.exitCode)
+    }, LEAK_GRACE_MS).unref()
     return
   }
 

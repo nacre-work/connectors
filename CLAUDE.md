@@ -192,6 +192,20 @@ routed around: a connector that forgets to is the next instance, so
 `log.test.ts` pins the replica-set spelling, a Postgres failover list and a
 password carrying an `@` of its own.
 
+**And it never exited, which the unit suite could not see and CI measured at
+thirty minutes.** A one-shot run sets `process.exitCode` and lets the loop
+drain; the mongo driver's pool and its monitors are live handles, and the
+connector never closed its `MongoClient`, so the first live `add` sat with the
+sweep long done until the job's own timeout cancelled it — three runs, each
+read as mongosh hanging on stdin, which was a real defect beside this one and
+not this one. The driver closes the client after every listing now, the sql
+and imap connectors' connection-per-sweep rule, and the kit no longer trusts
+the next connector to remember: a one-shot run that is still alive five
+seconds after its verdict logs what it is waiting on and exits with the
+verdict it already reached. `once-exit.test.ts` runs a leaky source in a
+child process and asks for the exit; with the guard removed it times out,
+which is the CI job's shape at test length.
+
 ## What a connector is not written until
 
 The unit suite drives the engine against a fake index and proves its
