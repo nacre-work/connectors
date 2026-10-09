@@ -6,7 +6,9 @@ export default tseslint.config(
   js.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ['scripts/**/*.mjs'],
+    // The cla gate's script is the core's byte for byte, so its globals are
+    // declared here rather than edited into the copy.
+    files: ['scripts/**/*.mjs', '.github/scripts/**/*.mjs'],
     languageOptions: {
       globals: { console: 'readonly', process: 'readonly', URL: 'readonly', fetch: 'readonly', setTimeout: 'readonly' },
     },

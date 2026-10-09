@@ -63,6 +63,7 @@ product's.
 ```bash
 pnpm install
 pnpm build && pnpm typecheck && pnpm lint && pnpm test
+pnpm lint:cla         # CLA.md and the cla gate are the core's, byte for byte
 pnpm lint:config      # every variable read is documented, every one documented is read
 pnpm lint:images      # every connector has an image, a README, and is in the release
 pnpm lint:workflows   # the aggregate and the workflows run the same gates
@@ -72,3 +73,10 @@ bash scripts/ci/live.sh git   # the three verbs against a real Nacre, in Docker
 The unit suite proves the engine's arithmetic against a fake index. The live
 run proves what the real index does with it — a connector is not written until
 `live.sh` has watched its add, its change and its removal arrive in a search.
+
+## Contributing
+
+Apache 2.0, and contributions are covered by the same Contributor License
+Agreement as the core — [CLA.md](CLA.md), signed by a pull request adding you
+to `.github/cla/signatures.json`. [CONTRIBUTING.md](CONTRIBUTING.md) has the
+procedure.

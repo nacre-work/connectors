@@ -281,12 +281,19 @@ variable re-documented in a connector is refused as a second claim.
 named after it, one version across all of them, and a row in both workflow
 matrices, read from the workflows rather than kept as a list. `lint:workflows`
 holds the aggregate against `lint:*` and `ci.yml` against both, and refuses a
-pull-request workflow that cannot be started by hand. Each produced its
+pull-request workflow that cannot be started by hand. `lint:cla` holds `CLA.md` and the `cla` gate's script byte for byte against
+the core's `main`, the owners and the agreement version against the core's
+list, the list's version against the one `CLA.md` states, and that the
+workflow actually runs the script. Each produced its
 refusal before it was believed.
 
 ## Conventions
 
 English everywhere. Conventional Commits, squash merge, one pull request one
-topic. pnpm, the version from `packageManager`. Node 24. No secrets in this
+topic. **CLA, not a DCO** — the core's [CLA.md](./CLA.md), byte for byte,
+signed by a pull request adding you to `.github/cla/signatures.json` and
+enforced by the `cla` job, which compares commit author and committer emails
+against that list read from the *base* branch. The list is this repository's
+own; a signature in the core's does not carry over. pnpm, the version from `packageManager`. Node 24. No secrets in this
 repository — a key that reaches a commit means rotating the key. Say in the
 pull request what needs a human outside it.
