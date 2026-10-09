@@ -13,8 +13,9 @@ sync written once for a source many customers have. Apache 2.0, like the core.
 |---|---|---|
 | [`git`](connectors/git/README.md) | the text files of a git repository, a path rule per layer | `ghcr.io/nacre-work/connectors/git` |
 | [`s3`](connectors/s3/README.md) | the objects of a bucket — AWS, MinIO or any S3-compatible store — a key rule per layer, files as files | `ghcr.io/nacre-work/connectors/s3` |
+| [`mongo`](connectors/mongo/README.md) | the documents a filter matches in a MongoDB collection, a template over the document's fields per layer, text only | `ghcr.io/nacre-work/connectors/mongo` |
 
-Planned, in this order: `sql`, `drive`, `mongo`, `imap`.
+Planned, in this order: `sql`, `drive`, `imap`.
 
 ## Every connector
 

@@ -35,7 +35,7 @@ Per source, the signal is different and the engine does not care:
 | s3 | ETag | the key is gone |
 | sql | a watermark column, or the row hash | the row is not in the query's result |
 | drive | `changes.list` | removed or trashed |
-| mongo | a change stream or a date field | the document is gone |
+| mongo | a version field the deployment names, or the document's hash | the document is not in the filter's result |
 | imap | UIDVALIDITY + UID | the message left the folder |
 
 ## Decisions, and whose they were
@@ -117,6 +117,27 @@ A git tree lists ten thousand blobs and reads the ones that moved. The engine
 decides a document's layer from the listing's fields for that reason, so a
 mapping that needs the fetched content to name a layer disables the cheap path
 rather than breaking it.
+
+**The mongo connector has nothing to fetch, and the version is what keeps that
+cheap.** A cursor hands over the whole document, so the listing holds every
+field and `fetch` returns nothing; what a sweep costs is decided by
+`Item.version`. A field the deployment names (`MONGO_VERSION`) is it, and
+without one the version is SHA-256 over the document's canonical JSON — every
+value as a template sees it, keys sorted at every depth — computed in the
+listing over bytes already delivered, so a document that did not move is
+neither mapped nor hashed by the engine. The official driver sits behind a
+`Collection` port in `driver.ts`, the s3 connector's `aws.ts` arrangement, and
+`source.ts` tells BSON values apart by `_bsontype` rather than importing one:
+an `ObjectId` is hex, a `Date` is ISO, an array of scalars is joined, and an
+embedded document is reached by a dotted path — the kit's language reads
+`${author.name}` already, so nothing is flattened. **Text only.** A `Binary`
+field is absent to a template and a mapping that names one skips the document
+by that name; files live in object stores and the s3 connector reads them.
+Writing it found that the kit's `redactUrl` hands a replica set's connection
+string — `mongodb://a:27017,b:27017/db` — back **unchanged**, because WHATWG
+`URL` refuses the host list, so a credential in one would have reached
+`/status` whole; the connector reads the string by its own grammar and builds
+what `/status` shows from the parts.
 
 ## What a connector is not written until
 
