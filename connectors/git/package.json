@@ -1,6 +1,6 @@
 {
   "name": "@nacre.work/connector-git",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Syncs the text files of a git repository into Nacre layers: a file is a document, a path rule picks its layer, a removed file is a removed document",
   "license": "Apache-2.0",

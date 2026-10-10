@@ -27,8 +27,27 @@ for (const f of files) {
   }
 }
 
+// What a workflow's token may do, and whose code it runs — the core's rule
+// from 0.38.0. A workflow that declares no permissions gets the repository's
+// default, which an organization can set to write. An action outside
+// `actions/` is pinned to a commit, because a tag is a pointer its owner can
+// move and these run in jobs holding the registry credential that pushes the
+// images a deployment pulls. The release stays beside the SHA as a comment.
+let pinned = 0
+for (const f of files) {
+  const text = readFileSync(join(dir, f), 'utf8')
+  if (!/^permissions:/m.test(text)) fail(`${f} declares no top-level permissions, so its token is whatever the repository's default is`)
+  for (const m of text.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)) {
+    const ref = m[1] ?? ''
+    if (ref.startsWith('./') || ref.startsWith('actions/') || ref.startsWith('docker://')) continue
+    pinned += 1
+    if (!/@[0-9a-f]{40}$/.test(ref)) fail(`${f}: ${ref} is referenced by a tag its owner can move; pin it to the commit`)
+  }
+}
+if (pinned === 0) fail('no third-party action in any workflow; the pinning rule has nothing to hold, which is not a pass')
+
 if (problems.length > 0) {
   for (const p of problems) console.error(`::error::${p}`)
   process.exit(1)
 }
-console.log(`ci.yml runs all ${String(gates.length)} lint:* gate(s) plus build, typecheck and test; ${String(files.length)} workflow(s) can each be started by hand.`)
+console.log(`ci.yml runs all ${String(gates.length)} lint:* gate(s) plus build, typecheck and test; ${String(files.length)} workflow(s) can each be started by hand, declare their permissions, and pin ${String(pinned)} third-party action reference(s) to commits.`)

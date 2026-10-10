@@ -1,6 +1,6 @@
 {
   "name": "@nacre.work/connector-drive",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Syncs a Google Drive folder or shared drive into Nacre layers: a file is a document, a Google Doc goes up as the Word file it exports to, a path rule picks the layer, a trashed or deleted file is a removed document",
   "license": "Apache-2.0",

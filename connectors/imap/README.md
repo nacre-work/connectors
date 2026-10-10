@@ -12,7 +12,7 @@ docker run -v imap-state:/state \
   -e NACRE_URL=https://nacre.example.com -e NACRE_TOKEN=... \
   -e 'IMAP_URL=imaps://archive%40example.com:...@imap.example.com/Archive' \
   -e IMAP_SINCE=2026-01-01 -e 'IMAP_LAYER=${header_x_layer|inbox}' \
-  ghcr.io/nacre-work/connectors/imap:0.1.1
+  ghcr.io/nacre-work/connectors/imap:0.1.2
 ```
 
 The shared variables are in the [root README](../../README.md). This connector

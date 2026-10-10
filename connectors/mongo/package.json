@@ -1,6 +1,6 @@
 {
   "name": "@nacre.work/connector-mongo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Syncs the documents of a MongoDB collection into Nacre layers: a document a filter matches is a document, a template over its fields picks its layer, a document gone from the result is a removed document",
   "license": "Apache-2.0",
