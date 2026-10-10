@@ -19,6 +19,25 @@ describe('redactUrl', () => {
     expect(redactUrl('mongodb://sync:p@ss@a:27017,b:27017/corp')).toBe('mongodb://a:27017,b:27017/corp')
   })
 
+  // libpq, the MySQL drivers and MongoDB all accept a password as a query
+  // parameter, and the redacted source is not only logged: it is the `source`
+  // the engine writes into every document's metadata, readable by everybody who
+  // can read the layer. Clearing the userinfo and leaving `?password=` was a
+  // credential in the index.
+  it('drops a credential carried in the query, and keeps every other parameter', () => {
+    expect(redactUrl('postgres://sync@db:5432/corp?password=hunter2&sslmode=require')).toBe(
+      'postgres://db:5432/corp?sslmode=require',
+    )
+    expect(redactUrl('mysql://db/corp?user=sync&password=hunter2')).toBe('mysql://db/corp?user=sync')
+    expect(redactUrl('mongodb://a:27017,b:27017/corp?replicaSet=rs0&authSource=admin&password=hunter2')).toBe(
+      'mongodb://a:27017,b:27017/corp?replicaSet=rs0&authSource=admin',
+    )
+    expect(redactUrl('https://bucket.example/x?X-Amz-Signature=abc&X-Amz-Credential=def&prefix=p')).toBe(
+      'https://bucket.example/x?prefix=p',
+    )
+    expect(redactUrl('https://api.example/v1?access_token=hunter2')).toBe('https://api.example/v1')
+  })
+
   it('leaves a value with no credential alone', () => {
     expect(redactUrl('mongodb://a:27017,b:27017/corp')).toBe('mongodb://a:27017,b:27017/corp')
     expect(redactUrl('/srv/repo.git')).toBe('/srv/repo.git')
