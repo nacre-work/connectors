@@ -1,6 +1,6 @@
 {
   "name": "@nacre.work/connector-s3",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Syncs the objects of an S3 bucket — AWS, MinIO or any S3-compatible store — into Nacre layers: an object is a document, a key rule picks its layer, a deleted object is a removed document",
   "license": "Apache-2.0",

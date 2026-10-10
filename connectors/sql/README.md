@@ -14,7 +14,7 @@ docker run -v sql-state:/state \
   -e SQL_URL=postgres://reader:...@db.internal:5432/wiki \
   -e 'SQL_QUERY=SELECT id, kind, title, body, updated_at FROM pages WHERE published' \
   -e 'SQL_LAYER=${kind}' -e 'SQL_CONTENT=${body}' -e SQL_VERSION=updated_at \
-  ghcr.io/nacre-work/connectors/sql:0.1.1
+  ghcr.io/nacre-work/connectors/sql:0.1.2
 ```
 
 The shared variables are in the [root README](../../README.md). This connector
