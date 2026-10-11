@@ -128,7 +128,7 @@ const mapping = compileMapping({
   content: '${text}',
   metadata: { folder: '${folder}', message_id: '${message_id|}', from: '${from|}', date: '${date|}', filename: '${filename|}' },
 })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 'imap', source: 'memory' }
 const state = () => new State(join(mkdtempSync(join(tmpdir(), 'imap-')), 'state.sqlite'))
 
@@ -165,7 +165,7 @@ describe('the three verbs over a folder', () => {
     const index = new FakeIndex()
     const st = state()
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined, paused: () => undefined }
 
     const first = await sweep({ source: source(box), mapping, index, state: st, provenance, report })
     expect(first).toMatchObject({ complete: true, added: 3, skipped: { binary: 1, oversize: 1, missing_field: 1 } })

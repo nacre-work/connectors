@@ -35,7 +35,7 @@ failure every rule here is against.
 | `NACRE_TOKEN` | A service account key holding `write` on every layer the connector maps to. `write` does not imply `read`, and the connector needs no `read`: it never searches | required |
 | `CONNECTOR_STATE` | The SQLite file remembering what was sent, in a volume | `/state/connector.sqlite` |
 | `SYNC_INTERVAL` | Seconds between sweeps, at least 10 | `300` |
-| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict. A source that leaves a connection open after the sweep does not keep the process alive: five seconds after the verdict it logs `exiting with handles still open` and exits with that verdict | `false` |
+| `SYNC_ONCE` | `true` runs one sweep and exits; the exit code is the sweep's verdict — `0` when everything went, `1` when the listing broke off or a document failed, `75` when the index asked to wait (below). A source that leaves a connection open after the sweep does not keep the process alive: five seconds after the verdict it logs `exiting with handles still open` and exits with that verdict | `false` |
 | `PORT` | Where `/healthz`, `/status` and `/metrics` answer | `9400` |
 
 A sweep is a **complete listing** of the source. What it lists is added or
@@ -44,15 +44,32 @@ is removed. A listing that breaks off removes nothing — the half it never
 reached has not been called gone. That is the one property the state exists to
 hold, and it is the first thing the suite checks.
 
+**When the index has no room, a document is held back rather than failed.**
+The core limits how fast a caller and an organization may send — 600 documents
+an hour per organization by default — and answers past that with `429` and how
+long until there is room. A first sync of a large source meets it every time. A
+wait of a minute or less is sat through and the same document is sent again; a
+longer one pauses sending for the rest of the sweep. The listing still runs to
+the end, so removal is still decided by a complete listing, and a document
+already in the index whose change was held back is kept rather than removed.
+Nothing about a held-back document is remembered, so the next sweep sends it —
+or this one does, if the wait runs out before the listing does. The sweep's log
+line says `deferred` and `resume_at`, `/status` and `/metrics` count it apart
+from `failed`, and a one-shot run exits `75` (`EX_TEMPFAIL`, "try again later"):
+not `0`, because the index is not yet what the source says, and not `1`,
+because nothing is wrong. The fix for a sync that keeps deferring is a higher
+limit for the organization, which is the operator's to set, or patience.
+
 Every document carries `metadata.connector` and `metadata.source`, so a search
 can be narrowed to what one connector brought, and a layer's directory can say
 where a document came from.
 
 ## Observing one
 
-`GET /status` is a versioned contract — `contract: 1` — with the last sweep's
+`GET /status` is a versioned contract — `contract: 2` — with the last sweep's
 counts, running totals, the layers touched and the source with its credential
-stripped. `GET /metrics` is the same in Prometheus's shape, every name prefixed
+stripped. 2 added `deferred` and `resumeAt` to the sweep and `deferred` to the
+totals; every key 1 carried is still there under its name. `GET /metrics` is the same in Prometheus's shape, every name prefixed
 `nacre_connector_`. Both are unauthenticated on purpose: nothing in them is a
 secret and the port is the operator's network. There is no dashboard here; a
 Grafana over `/metrics` is the intended one, and a fleet view is a separate
@@ -65,6 +82,7 @@ pnpm install
 pnpm build && pnpm typecheck && pnpm lint && pnpm test
 pnpm lint:cla         # CLA.md and the cla gate are the core's, byte for byte
 pnpm lint:config      # every variable read is documented, every one documented is read
+pnpm lint:core-pin    # the live stack runs the core the kit's SDK is written against
 pnpm lint:images      # every connector has an image, a README, and is in the release
 pnpm lint:workflows   # the aggregate and the workflows run the same gates
 bash scripts/ci/live.sh git   # the three verbs against a real Nacre, in Docker

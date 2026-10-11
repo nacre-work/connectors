@@ -39,7 +39,7 @@ class FakeIndex implements Index {
 }
 
 const mapping = compileMapping({ layer: '${layer}', externalId: '${path}', title: '${name}', content: '${content}', metadata: { path: '${path}' } })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 'git', source: 'test' }
 
 beforeAll(() => {
@@ -85,7 +85,7 @@ describe('the three verbs against a real repository', () => {
     const state = new State(join(root, 's.sqlite'))
     const index = new FakeIndex()
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string) => skipped.push(`${reason}:${item}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string) => skipped.push(`${reason}:${item}`), failed: () => undefined, paused: () => undefined }
 
     const first = await sweep({ source: src, mapping, index, state, provenance, report })
     expect(first).toMatchObject({ complete: true, added: 3, removed: 0, failed: 0 })

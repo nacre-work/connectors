@@ -296,8 +296,29 @@ fi
 search leave.md | json "d.items.find(h=>h.title==='leave.md').layer==='handbook' ? 'ok' : undefined" >/dev/null || die "leave.md is not in the handbook layer"
 search a.ts | json "d.items.find(h=>h.title==='a.ts').layer==='code' ? 'ok' : undefined" >/dev/null || die "a.ts is not in the code layer"
 
-say "verb 2: change"
+# Between the first two verbs, the index out of room. The core answers a spent
+# ingest budget with `429` and how long until there is room; a connector that
+# reads that as an error fails every document after it, on every sweep, until
+# the hour turns. What is watched: the change is held back and not failed, the
+# run exits 75 ("try again later") rather than 0 or 1, the old text is still
+# served because nothing was removed, and the next sweep with room sends it.
+say "the index out of room: a change held back, not failed"
+api_with_ingest_limit() { # per hour, applied by recreating the API; Redis keeps the count
+  LIVE_INGEST_PER_HOUR="$1" $COMPOSE up -d --quiet-pull api >/dev/null 2>&1
+  for _ in $(seq 1 60); do curl -sf "${API}/v1/ready" >/dev/null && return 0; sleep 2; done
+  die "the API never came back with an ingest limit of $1"
+}
 "${CONNECTOR}_change"
+api_with_ingest_limit 1
+LOG=$(run_once); echo "$LOG"
+echo "$LOG" | grep -q '"deferred":1' || die "the sweep did not report the change held back"
+echo "$LOG" | grep -q '"failed":0' || die "the sweep counted a document the index asked to wait for as failed"
+echo "$LOG" | grep -q 'the connector exited 75' || die "a sweep the index asked to wait did not exit 75"
+echo "$LOG" | grep -q '"removed":0' || die "a sweep that held a change back removed something"
+wait_for leave.md alphaleave || die "the old text of leave.md went missing while its change was only held back"
+api_with_ingest_limit 600
+
+say "verb 2: change"
 LOG=$(run_once); echo "$LOG"
 echo "$LOG" | grep -q '"changed":1' || die "the second sweep did not report one document changed"
 wait_for leave.md gammaleave || die "the changed text never reached the index"
@@ -314,7 +335,10 @@ say "the status contract, from a running connector"
 CID=$(run_connector service SYNC_INTERVAL=60)
 for _ in $(seq 1 20); do curl -sf http://localhost:9400/healthz >/dev/null && break; sleep 1; done
 STATUS=$(curl -sf http://localhost:9400/status); echo "$STATUS"
-printf '%s' "$STATUS" | json "d.contract===1 && d.connector==='${CONNECTOR}' && d.layers.includes('code') ? 'ok' : undefined" >/dev/null || die "/status does not honour contract 1"
+# The contract number from the source that declares it, not a second literal here.
+CONTRACT=$(grep -oE 'export const STATUS_CONTRACT = [0-9]+' packages/kit/src/status.ts | grep -oE '[0-9]+$')
+[ -n "$CONTRACT" ] || die "packages/kit/src/status.ts declares no STATUS_CONTRACT"
+printf '%s' "$STATUS" | json "d.contract===${CONTRACT} && d.connector==='${CONNECTOR}' && d.layers.includes('code') && typeof d.totals.deferred==='number' ? 'ok' : undefined" >/dev/null || die "/status does not honour contract ${CONTRACT}"
 curl -sf http://localhost:9400/metrics | grep -q "^nacre_connector_state_documents{connector=\"${CONNECTOR}\"} $((ADDED-1))\$" || die "/metrics does not count the one remaining document"
 if [ "${LIVE_FROM_DIST:-}" = 1 ]; then kill "$CID"; else docker stop "$CID" >/dev/null; fi
 

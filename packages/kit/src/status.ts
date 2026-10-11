@@ -1,15 +1,19 @@
 /**
  * What a connector says about itself, on `/status` and `/metrics`.
  *
- * `contract: 1` is a promise: the keys here are read by things this
- * repository does not know about — a dashboard, if one is ever built, lives
- * elsewhere and polls this. A key is added by raising the number, never
- * renamed or removed under it. The metrics are the same promise in
- * Prometheus's shape, prefixed `nacre_connector_`.
+ * `contract` is a promise: the keys here are read by things this repository
+ * does not know about — a dashboard, if one is ever built, lives elsewhere
+ * and polls this. A key is added by raising the number, never renamed or
+ * removed under it. The metrics are the same promise in Prometheus's shape,
+ * prefixed `nacre_connector_`.
+ *
+ * 2 added `deferred` and `resumeAt` to the sweep and `deferred` to the
+ * totals: what the index asked to wait for, which is neither a failure nor
+ * done. Everything 1 carried is here, under the same names.
  */
 import type { SweepReport } from './engine.js'
 
-export const STATUS_CONTRACT = 1
+export const STATUS_CONTRACT = 2
 
 export interface Status {
   readonly contract: typeof STATUS_CONTRACT
@@ -28,6 +32,7 @@ export interface Status {
     readonly unchanged: number
     readonly removed: number
     readonly failed: number
+    readonly deferred: number
     readonly skipped: Readonly<Record<string, number>>
   }
 }
@@ -37,7 +42,7 @@ export class StatusBook {
   #running = false
   #complete = 0
   #incomplete = 0
-  readonly #totals = { added: 0, changed: 0, unchanged: 0, removed: 0, failed: 0, skipped: {} as Record<string, number> }
+  readonly #totals = { added: 0, changed: 0, unchanged: 0, removed: 0, failed: 0, deferred: 0, skipped: {} as Record<string, number> }
 
   constructor(
     private readonly meta: { connector: string; version: string; source: string },
@@ -58,6 +63,7 @@ export class StatusBook {
     this.#totals.unchanged += report.unchanged
     this.#totals.removed += report.removed
     this.#totals.failed += report.failed
+    this.#totals.deferred += report.deferred
     for (const [reason, n] of Object.entries(report.skipped)) {
       this.#totals.skipped[reason] = (this.#totals.skipped[reason] ?? 0) + n
     }
@@ -101,6 +107,7 @@ export class StatusBook {
       [',verb="unchanged"', s.totals.unchanged],
       [',verb="removed"', s.totals.removed],
       [',verb="failed"', s.totals.failed],
+      [',verb="deferred"', s.totals.deferred],
     ])
     counter(
       'nacre_connector_skipped_total',

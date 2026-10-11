@@ -101,7 +101,7 @@ const mapping = compileMapping({
   content: '${content}',
   metadata: { file_id: '${file_id}', mime_type: '${mime_type}' },
 })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 'drive', source: 'memory' }
 
 function source(drive: Drive, o: { include?: string[]; exclude?: string[]; maxBytes?: number } = {}) {
@@ -132,7 +132,7 @@ describe('the three verbs over a Drive folder', () => {
     const index = new FakeIndex()
     const state = freshState()
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined, paused: () => undefined }
 
     const first = await sweep({ source: source(drive), mapping, index, state, provenance, report })
     expect(first).toMatchObject({ complete: true, added: 5, skipped: { unmapped: 2, oversize: 1, binary: 1 } })

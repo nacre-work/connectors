@@ -120,8 +120,8 @@ importers:
   packages/kit:
     dependencies:
       '@nacre.work/sdk':
-        specifier: ^0.27.0
-        version: 0.27.0
+        specifier: ^0.41.0
+        version: 0.41.0
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -288,8 +288,8 @@ packages:
   '@mongodb-js/saslprep@1.6.0':
     resolution: {integrity: sha512-19jGXfpctLDJUELLUZGJ5BllcLT7rHdF+gTTaN2jzqu0bGkUhpdcYtgK2Vux+g3zuBAa0TM/W666QMIjYhYujw==}
 
-  '@nacre.work/sdk@0.27.0':
-    resolution: {integrity: sha512-UpDSUQAw6+033d8jnJ3TZgC9wScCmpdVp6PTZyEKnqetVm2+3lrgdcBH3UdNAU1q9cAmfLsMhcdI9po6uHHhSQ==}
+  '@nacre.work/sdk@0.41.0':
+    resolution: {integrity: sha512-a+D0dB1vvTZ/j8OGRVvk5CtfTdeCqEpkL0LbP3bAmu4Ua0occSua2KzVqrHW0nyzRmEYN0H4gJnmN2ey43DTiw==}
     engines: {node: '>=22'}
 
   '@oxc-project/types@0.153.0':
@@ -1594,7 +1594,7 @@ snapshots:
     dependencies:
       sparse-bitfield: 3.0.3
 
-  '@nacre.work/sdk@0.27.0': {}
+  '@nacre.work/sdk@0.41.0': {}
 
   '@oxc-project/types@0.153.0': {}
 

@@ -58,7 +58,7 @@ const mapping = compileMapping({
   content: '${body}',
   metadata: { doc_id: '${doc_id}', author: '${author.name|}', tags: '${tags|}' },
 })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 'mongo', source: 'memory' }
 
 function source(collection: Collection, o: { filter?: Document; id?: string[]; version?: string[] } = {}) {
@@ -95,7 +95,7 @@ describe('the three verbs over a collection', () => {
     const index = new FakeIndex()
     const st = state()
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined, paused: () => undefined }
     const filter = {}
     const s = source(docs, { filter })
 

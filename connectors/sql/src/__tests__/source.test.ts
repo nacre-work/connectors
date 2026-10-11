@@ -53,7 +53,7 @@ const mapping = compileMapping({
 // document is part of the document, and moving it is then a change the hash
 // is right to see — so the case about skipping the hash must not render it.
 const plain = compileMapping({ layer: '${kind}', externalId: '${id}', title: '${title}', content: '${content}', metadata: { row_id: '${id}' } })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 'sql', source: 'memory' }
 const T1 = new Date('2026-01-01T00:00:00Z')
 const T2 = new Date('2026-02-01T00:00:00Z')
@@ -74,7 +74,7 @@ function source(query: Query, versionColumn?: string) {
 }
 function recorder() {
   const skipped: string[] = []
-  return { skipped, report: { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined } }
+  return { skipped, report: { skipped: (reason: string, item: string, detail: string) => void skipped.push(`${reason}:${item}:${detail}`), failed: () => undefined, paused: () => undefined } }
 }
 
 describe('the three verbs over a query', () => {
