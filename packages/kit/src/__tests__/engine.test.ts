@@ -57,7 +57,7 @@ function sourceOf(items: readonly { id: string; version?: string; text: string; 
 
 const mapping = compileMapping({ layer: '${dept}', externalId: '${path}', title: '${path}', content: '${content}', metadata: { path: '${path}' } })
 const provenance = { connector: 'test', source: 'memory' }
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const fresh = () => new State(join(mkdtempSync(join(tmpdir(), 'kit-engine-')), 's.sqlite'))
 
 describe('the three verbs', () => {
@@ -131,7 +131,7 @@ describe('the three verbs', () => {
       index,
       state,
       provenance,
-      report: { skipped: (reason, item) => skipped.push(`${reason}:${item}`), failed: () => undefined },
+      report: { skipped: (reason, item) => skipped.push(`${reason}:${item}`), failed: () => undefined, paused: () => undefined },
     })
     expect(r).toMatchObject({ complete: true, added: 1, failed: 0 })
     expect(r.skipped).toEqual({ layer_missing: 1, empty: 1 })
@@ -219,7 +219,7 @@ describe('binary documents', () => {
     const state = new State(join(mkdtempSync(join(tmpdir(), 'kit-')), 'state.sqlite'))
     const index = new FakeIndex()
     const skipped: [string, string][] = []
-    const report = { skipped: (reason: string, item: string) => void skipped.push([reason, item]), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string) => void skipped.push([reason, item]), failed: () => undefined, paused: () => undefined }
 
     const outcome = await sweep({
       source: filesOf([
@@ -257,7 +257,7 @@ describe('remembered skips', () => {
       return { list: () => inner.list(), fetch: (item: Item) => (fetches.push(item.id), inner.fetch(item)) }
     }
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined, paused: () => undefined }
 
     // No content_type: a missing field, decided from the bytes.
     const first = await sweep({ source: counting([png]), mapping, index, state, provenance, report })

@@ -108,6 +108,32 @@ export class IndexRefusal extends Error {
   }
 }
 
+/**
+ * The index has no room for this request now, and said when it will: a `429`
+ * with its `Retry-After`. Not a refusal of the document — the same request
+ * succeeds later — and not a failure of the index, which is working exactly
+ * as configured. `retryAfterSeconds` is undefined when the index named no time.
+ */
+export class IndexBusy extends Error {
+  override readonly name = 'IndexBusy'
+  constructor(
+    readonly retryAfterSeconds: number | undefined,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * The longest wait sat through inside a sweep. The core's per-caller budget
+ * refills in seconds and is worth waiting for; its ingest budget is hourly,
+ * and sitting on an open listing — a cursor, an IMAP session, a bucket
+ * page — for most of an hour is how that listing times out under the sweep.
+ */
+export const MAX_WAIT_SECONDS = 60
+/** How many short waits one request is given before the sweep pauses instead. */
+export const MAX_WAITS = 3
+
 export type SkipReason = 'layer_missing' | 'rejected' | 'missing_field' | 'empty' | 'oversize' | 'binary' | 'unmapped'
 
 export interface SweepReport {
@@ -124,12 +150,22 @@ export interface SweepReport {
   readonly skipped: Readonly<Record<string, number>>
   /** Adds and removes the index could not take this time; retried next sweep. */
   readonly failed: number
+  /**
+   * Adds and removes held back because the index said it had no room until
+   * later. Nothing about them is remembered, so the next sweep sends them;
+   * they are not failures, and a run that only deferred did nothing wrong.
+   */
+  readonly deferred: number
+  /** When the index said it would take documents again, while it was still refusing at the end of the sweep. */
+  readonly resumeAt: string | null
   readonly error: string | undefined
 }
 
 export interface Reporter {
   skipped(reason: SkipReason, item: string, detail: string): void
   failed(verb: 'add' | 'remove', item: string, detail: string): void
+  /** Once per pause: the index refused for longer than a sweep waits, and sending stops until `resumeAt`. */
+  paused(verb: 'add' | 'remove', item: string, retryAfterSeconds: number | undefined, detail: string): void
 }
 
 /** Fixed metadata every document carries, merged under the mapping's own. */
@@ -146,12 +182,15 @@ export interface SweepOptions {
   readonly provenance: Provenance
   readonly report: Reporter
   readonly now?: () => Date
+  /** How a short wait is slept; a seam so the suite does not sit through one. */
+  readonly sleep?: (ms: number) => Promise<void>
   /** A source may carry a `skip` field naming a reason the engine should count rather than map. */
   readonly maxBytes?: number
 }
 
 export async function sweep(options: SweepOptions): Promise<SweepReport> {
   const now = options.now ?? (() => new Date())
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const { source, mapping, index, state, report } = options
   const id = state.beginSweep(now())
   const startedAt = now().toISOString()
@@ -166,8 +205,44 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
   let unchanged = 0
   let removed = 0
   let failed = 0
+  let deferred = 0
   let complete = false
   let error: string | undefined
+
+  // While the index is out of room, nothing is sent and the listing goes on:
+  // a listing that completes is what licenses removal, and it costs the index
+  // nothing. `Infinity` is a refusal that named no time — paused for the rest
+  // of this sweep. A pause that expires mid-sweep resumes sending, so a long
+  // listing over a busy index still moves as fast as the index allows.
+  let pausedUntil: number | undefined
+  const paused = (): boolean => {
+    if (pausedUntil === undefined) return false
+    if (now().getTime() < pausedUntil) return true
+    pausedUntil = undefined
+    return false
+  }
+  const DEFERRED = Symbol('deferred')
+  /** One request to the index, sitting through a short refusal and pausing on a long one. */
+  const withRoom = async <T>(verb: 'add' | 'remove', item: string, call: () => Promise<T>): Promise<T | typeof DEFERRED> => {
+    for (let waits = 0; ; waits++) {
+      if (paused()) return DEFERRED
+      try {
+        return await call()
+      } catch (e) {
+        if (!(e instanceof IndexBusy)) throw e
+        const seconds = e.retryAfterSeconds
+        if (seconds !== undefined && seconds <= MAX_WAIT_SECONDS && waits < MAX_WAITS) {
+          // At least a second: a `Retry-After: 0` is the index saying "now",
+          // and a request sent in the same instant meets the same count.
+          await sleep(Math.max(1, seconds) * 1000)
+          continue
+        }
+        pausedUntil = seconds === undefined ? Number.POSITIVE_INFINITY : now().getTime() + seconds * 1000
+        report.paused(verb, item, seconds, e.message)
+        return DEFERRED
+      }
+    }
+  }
 
   try {
     for await (const item of source.list()) {
@@ -191,6 +266,18 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
         state.rememberSkip(id, item.id, item.version as string, known.reason, known.detail)
         skip(known.reason as SkipReason, item.id, known.detail)
         continue
+      }
+      // Paused, and the listing alone names the document: keep its row from
+      // being removed and fetch nothing — a bucket of a hundred thousand
+      // objects is not downloaded every sweep only to be held back.
+      if (paused()) {
+        const key = keyFromListing(mapping, item)
+        if (key !== undefined) {
+          const row = state.get(key.layer, key.externalId)
+          if (row !== undefined) state.markSeen(id, row.layer, row.externalId)
+          deferred += 1
+          continue
+        }
       }
       // Decided by the bytes, so remembered by the version where there is one.
       const skipByBytes = (reason: SkipReason, detail: string): void => {
@@ -240,7 +327,11 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
       // refuses this sweep is still in the source and must not be removed.
       if (row !== undefined) state.markSeen(id, row.layer, row.externalId)
       try {
-        const outcome = await index.add(mapped)
+        const outcome = await withRoom('add', item.id, () => index.add(mapped))
+        if (outcome === DEFERRED) {
+          deferred += 1
+          continue
+        }
         state.upsert(id, {
           layer: mapped.layer,
           externalId: mapped.externalId,
@@ -269,7 +360,12 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
     state.pruneSkips(id)
     for (const row of state.unseen(id)) {
       try {
-        await index.remove(row.documentId)
+        // A removal held back stays in the state, unseen, and the next
+        // complete sweep finds it gone again and removes it then.
+        if ((await withRoom('remove', `${row.layer}/${row.externalId}`, () => index.remove(row.documentId))) === DEFERRED) {
+          deferred += 1
+          continue
+        }
         state.remove(row.layer, row.externalId)
         removed += 1
       } catch (e) {
@@ -291,6 +387,8 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
     removed,
     skipped,
     failed,
+    deferred,
+    resumeAt: paused() && Number.isFinite(pausedUntil) ? new Date(pausedUntil as number).toISOString() : null,
     error,
   }
 }
@@ -302,11 +400,16 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
  * disables the cheap path rather than breaking it.
  */
 function rememberedByVersion(state: State, mapping: Mapping, item: Item) {
+  const key = keyFromListing(mapping, item)
+  if (key === undefined) return undefined
+  const row = state.get(key.layer, key.externalId)
+  return row !== undefined && row.sourceVersion === item.version ? row : undefined
+}
+
+/** The document an item names, from its listing fields alone — or undefined where the mapping needs a fetched field to say. */
+function keyFromListing(mapping: Mapping, item: Item): { layer: string; externalId: string } | undefined {
   try {
-    const layer = mapping.layer.render(item.fields)
-    const externalId = mapping.externalId.render(item.fields)
-    const row = state.get(layer, externalId)
-    return row !== undefined && row.sourceVersion === item.version ? row : undefined
+    return { layer: mapping.layer.render(item.fields), externalId: mapping.externalId.render(item.fields) }
   } catch (e) {
     if (e instanceof MissingField) return undefined
     throw e

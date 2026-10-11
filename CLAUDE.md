@@ -210,6 +210,44 @@ verdict it already reached. `once-exit.test.ts` runs a leaky source in a
 child process and asks for the exit; with the guard removed it times out,
 which is the CI job's shape at test length.
 
+**A first sync of a large source failed every document past the six-hundredth,
+on every sweep, and the live gate could not have seen it.** The core limits
+ingest per organization — 600 an hour by default, and 0.41.0 added a budget
+per caller — and answers past it with `429` and the wait. The kit read that
+`429` as an error: the SDK retried once after 250 ms, the engine counted a
+failure and moved to the next document, which met the same refusal, so a
+sync of a few thousand files reported thousands of failures inside a second,
+a one-shot run exited `1`, and a daemon re-sent the whole remainder every
+sweep until the hour turned. Reproduced against 0.41.0 with the limit at 3:
+three added, seven failed with `Try again in 2501 seconds` in the detail, the
+index having said exactly what to do.
+
+Now a wait of up to a minute is sat through and the document sent again, and
+a longer one **pauses** sending for the rest of the sweep: the listing runs to
+the end, so removal is still licensed by a complete listing; a document whose
+row exists is marked seen and kept; nothing is fetched for an item the listing
+alone can name, so a hundred-thousand-object bucket is not downloaded every
+sweep only to be held back; a pause that runs out mid-listing resumes sending.
+Held back is `deferred`, not `failed` — nothing about it is remembered, so the
+next sweep sends it — and a one-shot run that deferred exits `75`, sysexits'
+"try again later", because `0` would tell a job the index matches the source
+and `1` would page somebody for an index working as configured. `/status`
+went to contract 2 for the two keys, by its own rule. Every guard was taken
+out alone and named by its case in `busy.test.ts`, and `live.sh` now restarts
+the index with an ingest limit of 1 between the first two verbs and watches
+the change held back, exit `75`, the old text still served, and the change
+arrive on the next sweep with room.
+
+**And the gate was proving the connectors against a core fourteen releases
+old.** `docker-compose.live.yml` named core 0.27.0 because the kit's SDK was
+`^0.27.0` — which on a 0.x version admits 0.27 and nothing else — and nothing
+compared the two: this file said the live run used "the core's published
+images at the version the kit's SDK pins", true by coincidence and held by
+nobody. The SDK is `^0.41.0`, the stack runs 0.41.0, and `lint:core-pin`
+refuses a core image the SDK does not resolve to, or a stack that names none.
+`live.sh`'s own `contract===1` was the same shape one file over — a second
+literal for a number `status.ts` declares — and it reads the declaration now.
+
 ## What a connector is not written until
 
 The unit suite drives the engine against a fake index and proves its

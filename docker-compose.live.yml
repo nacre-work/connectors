@@ -17,7 +17,7 @@
 name: connectors-live
 
 x-core: &core
-  image: ghcr.io/nacre-work/nacre:0.27.0
+  image: ghcr.io/nacre-work/nacre:0.41.0
   environment: &env
     NACRE_ENV: development
     NACRE_CANONICAL_URL: http://localhost:8080
@@ -57,6 +57,10 @@ services:
     environment:
       <<: *env
       PORT: 8080
+      # Lowered by live.sh for one sweep, to watch a connector meet an index
+      # with no room: the core answers `429` with the wait, and the connector
+      # must hold the document back rather than call it failed.
+      NACRE_RATE_INGEST_PER_HOUR: "${LIVE_INGEST_PER_HOUR:-600}"
     ports: ["8080:8080"]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -74,7 +78,7 @@ services:
       parser: { condition: service_started }
       stub-embedder: { condition: service_healthy }
   parser:
-    image: ghcr.io/nacre-work/nacre-parser:0.27.0
+    image: ghcr.io/nacre-work/nacre-parser:0.41.0
     expose: ["8090"]
   stub-embedder:
     image: ${LIVE_NODE_IMAGE:-node:24-alpine}

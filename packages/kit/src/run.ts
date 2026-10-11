@@ -27,6 +27,21 @@ export interface Connector {
 /** How long a one-shot run waits for a leaked handle before it exits anyway. */
 export const LEAK_GRACE_MS = 5_000
 
+/**
+ * A one-shot run that did everything the index had room for and held the
+ * rest back: sysexits' `EX_TEMPFAIL`, "try again later". Not `0`, because the
+ * index is not yet what the source says and a job reading the code must not
+ * be told it is; not `1`, because nothing is wrong and a job that pages on
+ * failure must not be woken by an index working as configured.
+ */
+export const EXIT_DEFERRED = 75
+
+/** A one-shot run's exit code, from its sweep. */
+export function verdict(r: Pick<SweepReport, 'complete' | 'failed' | 'deferred'>): number {
+  if (!r.complete || r.failed > 0) return 1
+  return r.deferred > 0 ? EXIT_DEFERRED : 0
+}
+
 export async function runConnector(connector: Connector): Promise<void> {
   const config = kitConfig()
   const mapping = compileMapping(connector.mapping, `${connector.name} mapping`)
@@ -45,6 +60,8 @@ export async function runConnector(connector: Connector): Promise<void> {
   const report = {
     skipped: (reason: string, item: string, detail: string) => log('skipped', { reason, item, detail }),
     failed: (verb: string, item: string, detail: string) => log('failed', { verb, item, detail }),
+    paused: (verb: string, item: string, retryAfterSeconds: number | undefined, detail: string) =>
+      log('paused', { verb, item, retry_after_seconds: retryAfterSeconds, detail }),
   }
   const once = async (): Promise<SweepReport> => {
     book.begin()
@@ -59,6 +76,8 @@ export async function runConnector(connector: Connector): Promise<void> {
       unchanged: r.unchanged,
       removed: r.removed,
       failed: r.failed,
+      deferred: r.deferred,
+      resume_at: r.resumeAt ?? undefined,
       skipped: JSON.stringify(r.skipped),
       error: r.error,
     })
@@ -79,7 +98,8 @@ export async function runConnector(connector: Connector): Promise<void> {
     server.close()
     // A sweep that could not list the source, or could not get every document
     // the index should have taken, is a failed run — the exit code says so.
-    process.exitCode = r.complete && r.failed === 0 ? 0 : 1
+    // One the index asked to wait is neither a success nor that; see `verdict`.
+    process.exitCode = verdict(r)
     // The process ends when the loop drains, and a source that leaves a
     // handle open — a driver's pool, a monitor timer — keeps it from
     // draining: the verdict is set and nothing reads it, because nothing

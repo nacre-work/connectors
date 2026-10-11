@@ -44,7 +44,7 @@ class FakeIndex implements Index {
 }
 
 const mapping = compileMapping({ layer: '${layer}', externalId: '${path}', title: '${name}', content: '${content}', metadata: { key: '${key}' } })
-const quiet = { skipped: () => undefined, failed: () => undefined }
+const quiet = { skipped: () => undefined, failed: () => undefined, paused: () => undefined }
 const provenance = { connector: 's3', source: 'memory' }
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
@@ -75,7 +75,7 @@ describe('the three verbs over a bucket', () => {
     const index = new FakeIndex()
     const state = new State(join(mkdtempSync(join(tmpdir(), 's3-')), 'state.sqlite'))
     const skipped: string[] = []
-    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined }
+    const report = { skipped: (reason: string, item: string) => void skipped.push(`${reason}:${item}`), failed: () => undefined, paused: () => undefined }
 
     const first = await sweep({ source: source(store), mapping, index, state, provenance, report })
     expect(first).toMatchObject({ complete: true, added: 4, skipped: { unmapped: 1, oversize: 1, binary: 1 } })

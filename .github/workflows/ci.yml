@@ -24,6 +24,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm lint:cla
       - run: pnpm lint:config
+      - run: pnpm lint:core-pin
       - run: pnpm lint:formats
       - run: pnpm lint:images
       - run: pnpm lint:workflows

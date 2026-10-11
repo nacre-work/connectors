@@ -4,9 +4,21 @@
  * to or that does not exist — the core makes the two indistinguishable on
  * purpose — and a `4xx` the request itself earned is a rejection the next
  * sweep will earn again, so neither is retried and both are counted.
+ *
+ * A `429` is neither. The index is out of room for this caller or this
+ * organization and says when it will have some, so it becomes `IndexBusy`
+ * with that wait, and the engine decides whether to sit through it or to
+ * pause the sweep. The SDK has already slept through a wait of up to ten
+ * seconds on a request it may repeat; what reaches here is longer, or a
+ * removal, which it does not repeat on its own.
  */
 import { NacreClient, NacreError } from '@nacre.work/sdk'
-import { IndexRefusal, type Index, type Mapped } from './engine.js'
+import { IndexBusy, IndexRefusal, type Index, type Mapped } from './engine.js'
+
+function busy(e: unknown): never {
+  if (e instanceof NacreError && e.status === 429) throw new IndexBusy(e.retryAfter, `${String(e.status)}: ${e.detail}`)
+  throw e
+}
 
 export function nacreIndex(client: NacreClient): Index {
   return {
@@ -30,9 +42,9 @@ export function nacreIndex(client: NacreClient): Index {
           if (e.status === 404) throw new IndexRefusal('layer_missing', `layer ${JSON.stringify(doc.layer)}: ${e.detail}`)
           if (e.status >= 400 && e.status < 500 && e.status !== 429) throw new IndexRefusal('rejected', `${String(e.status)}: ${e.detail}`)
         }
-        throw e
+        busy(e)
       }
     },
-    remove: (documentId: string) => client.documents.remove(documentId),
+    remove: (documentId: string) => client.documents.remove(documentId).catch(busy),
   }
 }
